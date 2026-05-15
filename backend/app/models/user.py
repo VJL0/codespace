@@ -21,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
+from app.core.public_ids import generate_public_id
 from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
@@ -44,6 +45,10 @@ class User(TimestampMixin, Base):
 
     This table stores identity/account data only.
 
+    Internal database relationships should use `id`.
+
+    Public routes and API responses should use `public_id`.
+
     Classroom permissions such as owner, teacher, co-teacher, and student
     belong in ClassroomMember, not directly on User.
     """
@@ -54,6 +59,12 @@ class User(TimestampMixin, Base):
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+    )
+
+    public_id: Mapped[str] = mapped_column(
+        String(12),
+        nullable=False,
+        default=generate_public_id,
     )
 
     email: Mapped[str] = mapped_column(
@@ -127,15 +138,26 @@ class User(TimestampMixin, Base):
             "email",
             name="uq_users_email",
         ),
+        UniqueConstraint(
+            "public_id",
+            name="uq_users_public_id",
+        ),
         CheckConstraint(
             "length(email) > 0",
-            name="email_not_empty",
+            name="ck_users_email_not_empty",
+        ),
+        CheckConstraint(
+            "length(public_id) = 12",
+            name="ck_users_public_id_length",
+        ),
+        CheckConstraint(
+            "public_id ~ '^[A-Za-z0-9]{12}$'",
+            name="ck_users_public_id_format",
         ),
         CheckConstraint(
             "password_hash IS NULL OR length(password_hash) >= 20",
-            name="password_hash_valid",
+            name="ck_users_password_hash_length",
         ),
-        Index("ix_users_email", "email"),
         Index("ix_users_is_active", "is_active"),
     )
 
@@ -147,6 +169,18 @@ class User(TimestampMixin, Base):
             raise ValueError("Email cannot be empty.")
 
         return email
+
+    @validates("public_id")
+    def validate_public_id(self, key: str, value: str) -> str:
+        public_id = value.strip()
+
+        if len(public_id) != 12:
+            raise ValueError("Public ID must be exactly 12 characters.")
+
+        if not public_id.isalnum():
+            raise ValueError("Public ID must contain only letters and numbers.")
+
+        return public_id
 
     @property
     def has_password(self) -> bool:
@@ -168,7 +202,14 @@ class User(TimestampMixin, Base):
         return methods
 
     def __repr__(self) -> str:
-        return f"User(id={self.id!s}, email={self.email!r}, role={self.role.value!r})"
+        return (
+            "User("
+            f"id={self.id!s}, "
+            f"public_id={self.public_id!r}, "
+            f"email={self.email!r}, "
+            f"role={self.role.value!r}"
+            ")"
+        )
 
 
 class UserOAuthAccount(TimestampMixin, Base):

@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import check_database_connection, close_database_connection
 
+from app.api.router import api_router
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -32,6 +34,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-CSRF-Token"],
 )
+
+app.include_router(api_router, prefix="/api")
 
 
 @app.get("/health", tags=["Health"])
