@@ -46,3 +46,29 @@ alembic current                              # current DB version
 ruff check .           # lint
 ruff format .          # format
 
+
+**Modular Monolith**
+
+backend/
+├── app/
+│   ├── main.py
+│   ├── core/
+│   ├── db/
+│   ├── api/
+│   ├── modules/
+│   │   ├── users/
+│   │   ├── auth/
+│   │   ├── classrooms/
+│   └── shared/
+├── alembic/
+├── tests/
+├── pyproject.toml
+└── uv.lock
+
+For each module:
+router.py          # HTTP layer
+schemas.py         # Pydantic DTOs
+models.py          # SQLAlchemy models
+repository.py      # database queries
+service.py         # business logic/use cases
+dependencies.py    # FastAPI dependency wiring

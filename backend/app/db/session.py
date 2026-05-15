@@ -1,5 +1,3 @@
-# app/core/database.py
-
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import text
@@ -11,6 +9,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import settings
+
 
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
