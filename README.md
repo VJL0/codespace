@@ -94,9 +94,10 @@ codespace/
 ### Requirements
 
 * Node.js
-* Python
-* Docker
-* Docker Compose
+* [pnpm](https://pnpm.io/installation)
+* Python 3.14+
+* [uv](https://docs.astral.sh/uv/getting-started/installation/)
+* Docker + Docker Compose (for PostgreSQL)
 
 Clone the repository:
 
@@ -105,13 +106,34 @@ git clone https://github.com/VJL0/codespace.git
 cd codespace
 ```
 
-Start the required services:
+### 1. Start the database
 
 ```bash
-docker compose up
+cd backend
+cp .env.example .env   # first time only
+docker compose up -d
 ```
 
-Additional frontend and backend setup instructions can be found in their respective directories.
+### 2. Run the backend
+
+```bash
+cd backend
+uv sync
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload
+```
+
+The API will be available at `http://localhost:8000`.
+
+### 3. Run the frontend
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+The app will be available at `http://localhost:5173`.
 
 ## What I'm Working On
 
