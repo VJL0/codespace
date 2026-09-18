@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import enum
+import secrets
+import string
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -21,15 +23,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
-from app.core.public_ids import generate_public_id
-from app.models.base import Base, TimestampMixin
-
-
-from __future__ import annotations
-
-import secrets
-import string
-
+from app.models.base import Base
+from app.models.mixins import TimestampMixin
 
 PUBLIC_ID_ALPHABET = string.ascii_letters + string.digits
 PUBLIC_ID_LENGTH = 12
@@ -42,7 +37,7 @@ def generate_public_id(length: int = PUBLIC_ID_LENGTH) -> str:
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from app.models.classroom import ClassroomMember
+    from app.modules.classrooms.models import ClassroomMember
 
 
 class UserRole(str, enum.Enum):

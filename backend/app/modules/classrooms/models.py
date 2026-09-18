@@ -21,10 +21,11 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base
+from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    from app.modules.users.models import User
 
 
 class ClassroomRole(str, enum.Enum):

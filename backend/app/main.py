@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -40,6 +41,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-CSRF-Token"],
+)
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.oauth_session_secret_key.get_secret_value(),
+    session_cookie=settings.oauth_session_cookie_name,
+    same_site="lax",
+    https_only=not settings.is_development,
+    max_age=settings.oauth_session_max_age_seconds,
 )
 
 app.include_router(api_router, prefix="/api")
