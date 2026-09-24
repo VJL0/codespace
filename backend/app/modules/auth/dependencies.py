@@ -5,13 +5,12 @@ from typing import Annotated
 from fastapi import Cookie, Depends, HTTPException, status
 
 from app.api.deps import DbSession
-from app.core.config import settings
-from app.modules.auth.session import get_user_id_for_session
+from app.modules.auth.session import SESSION_COOKIE_NAME, get_user_id_for_session
 from app.modules.users.models import User
 
 AuthSessionToken = Annotated[
     str | None,
-    Cookie(alias=settings.auth_session_cookie_name),
+    Cookie(alias=SESSION_COOKIE_NAME),
 ]
 
 

@@ -64,7 +64,7 @@ async def google_callback(request: Request, db: DbSession) -> RedirectResponse:
     session_token = await create_session(db, user_id=user.id)
     await db.commit()
 
-    response = RedirectResponse(url=str(settings.frontend_url))
+    response = RedirectResponse(url=settings.frontend_url)
     set_session_cookie(response, token=session_token)
 
     return response

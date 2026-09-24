@@ -15,6 +15,14 @@ export default defineConfig([
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
     ],
+    rules: {
+      // React Router route modules co-export `loader`/`action` alongside
+      // `Component` by design (see router.tsx's `lazy: () => import(...)`).
+      'react-refresh/only-export-components': [
+        'error',
+        { allowExportNames: ['loader', 'action'] },
+      ],
+    },
     languageOptions: {
       globals: globals.browser,
     },

@@ -20,7 +20,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title=settings.app_name,
+    title="Codespace",
     debug=settings.is_development,
     docs_url="/docs" if settings.is_development else None,
     redoc_url="/redoc" if settings.is_development else None,
@@ -37,7 +37,7 @@ app.add_middleware(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=[settings.frontend_url],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-CSRF-Token"],
@@ -45,11 +45,11 @@ app.add_middleware(
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.oauth_session_secret_key.get_secret_value(),
-    session_cookie=settings.oauth_session_cookie_name,
+    secret_key=settings.oauth_session_secret_key,
+    session_cookie="oauth_session",
     same_site="lax",
     https_only=not settings.is_development,
-    max_age=settings.oauth_session_max_age_seconds,
+    max_age=10 * 60,
 )
 
 app.include_router(api_router, prefix="/api")

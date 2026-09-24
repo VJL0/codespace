@@ -33,7 +33,11 @@ export function GoogleSignInButton({ className }: GoogleSignInButtonProps) {
   return (
     <a
       href={`${API_URL}/api/auth/google/login`}
-      className={cn(buttonVariants({ variant: "outline", size: "lg" }), "gap-3", className)}
+      className={cn(
+        buttonVariants({ variant: "outline", size: "lg" }),
+        "gap-3",
+        className
+      )}
     >
       <GoogleLogo />
       Sign in with Google

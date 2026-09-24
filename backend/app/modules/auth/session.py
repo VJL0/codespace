@@ -9,13 +9,14 @@ from typing import TYPE_CHECKING
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.modules.auth.models import UserSession
 
 if TYPE_CHECKING:
     from fastapi import Response
 
 TOKEN_BYTES = 32
+SESSION_COOKIE_NAME = "__Host-Http-session"
+SESSION_ABSOLUTE_TIMEOUT = timedelta(days=14)
 
 
 def _hash_token(token: str) -> str:
@@ -45,12 +46,8 @@ async def get_user_id_for_session(db: AsyncSession, token: str) -> uuid.UUID | N
 
     now = datetime.now(UTC)
 
-    idle_deadline = session_row.last_seen_at + timedelta(
-        seconds=settings.auth_session_idle_timeout_seconds
-    )
-    absolute_deadline = session_row.created_at + timedelta(
-        seconds=settings.auth_session_absolute_timeout_seconds
-    )
+    idle_deadline = session_row.last_seen_at + timedelta(minutes=30)
+    absolute_deadline = session_row.created_at + SESSION_ABSOLUTE_TIMEOUT
 
     if now > idle_deadline or now > absolute_deadline:
         await db.delete(session_row)
@@ -69,9 +66,9 @@ async def revoke_session(db: AsyncSession, token: str) -> None:
 
 def set_session_cookie(response: Response, *, token: str) -> None:
     response.set_cookie(
-        key=settings.auth_session_cookie_name,
+        key=SESSION_COOKIE_NAME,
         value=token,
-        max_age=settings.auth_session_absolute_timeout_seconds,
+        max_age=int(SESSION_ABSOLUTE_TIMEOUT.total_seconds()),
         httponly=True,
         secure=True,
         samesite="lax",
@@ -81,7 +78,7 @@ def set_session_cookie(response: Response, *, token: str) -> None:
 
 def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(
-        key=settings.auth_session_cookie_name,
+        key=SESSION_COOKIE_NAME,
         path="/",
         httponly=True,
         secure=True,
