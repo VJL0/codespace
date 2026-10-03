@@ -37,9 +37,6 @@ def generate_public_id(length: int = PUBLIC_ID_LENGTH) -> str:
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from app.modules.classrooms.models import ClassroomMember
-
-
 class UserRole(str, enum.Enum):
     USER = "user"
     ADMIN = "admin"
@@ -68,7 +65,7 @@ class User(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
-        default=uuid.uuid4,
+        default=uuid.uuid7,
     )
 
     public_id: Mapped[str] = mapped_column(
@@ -235,7 +232,7 @@ class UserOAuthAccount(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
-        default=uuid.uuid4,
+        default=uuid.uuid7,
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(

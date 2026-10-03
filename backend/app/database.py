@@ -10,13 +10,6 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import settings
 
-# Imported for side effects: registers every mapped model on Base's registry
-# so SQLAlchemy can resolve cross-module relationships (e.g. User <->
-# ClassroomMember) the first time any mapper is used.
-# TODO: Find a better way to do this
-from app.modules.classrooms import models as _classroom_models  # noqa: F401
-from app.modules.users import models as _user_models  # noqa: F401
-
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
     pool_pre_ping=True,
