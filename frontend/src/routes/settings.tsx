@@ -51,10 +51,12 @@ export function Component() {
   const { revalidate } = useRevalidator()
   const navigate = useNavigate()
   const [reauthOpen, setReauthOpen] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const linked = providerLabel(searchParams.get("linked"))
-  const reauthenticated = providerLabel(searchParams.get("reauthenticated"))
+  // Back from a provider or an email link, or confirmed here with a password.
+  const reauthenticated = confirmed || searchParams.has("reauthenticated")
   const errorCode = searchParams.get("error")
   const error =
     actionError ??
@@ -94,7 +96,11 @@ export function Component() {
     navigate("/login", { replace: true })
   }
 
-  const isOnlyMethod = methods.identities.length <= 1
+  // A password is a way in too.
+  const isOnlyMethod =
+    methods.identities.length + (methods.has_password ? 1 : 0) <= 1
+  const primaryEmail =
+    methods.emails.find(({ is_primary }) => is_primary)?.email ?? null
 
   return (
     <div className="mx-auto flex min-h-svh w-full max-w-xl flex-col gap-6 p-6">
@@ -218,7 +224,13 @@ export function Component() {
       <ReauthenticateDialog
         open={reauthOpen}
         onOpenChange={setReauthOpen}
+        hasPassword={methods.has_password}
+        email={primaryEmail}
         providers={methods.reauthentication_providers}
+        onConfirmed={() => {
+          setReauthOpen(false)
+          setConfirmed(true)
+        }}
       />
     </div>
   )

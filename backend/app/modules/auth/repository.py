@@ -6,7 +6,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.modules.auth.models import OAuthAccount, OAuthProvider, UserSession
+from app.modules.auth.models import (
+    OAuthAccount,
+    OAuthProvider,
+    PasswordCredential,
+    UserSession,
+)
 
 
 class OAuthAccountRepository:
@@ -76,3 +81,17 @@ class UserSessionRepository:
         await self._db.execute(
             delete(UserSession).where(UserSession.user_id == user_id)
         )
+
+
+class PasswordCredentialRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def get(self, user_id: uuid.UUID) -> PasswordCredential | None:
+        return await self._db.get(PasswordCredential, user_id)
+
+    def add(self, credential: PasswordCredential) -> None:
+        self._db.add(credential)
+
+    async def delete(self, credential: PasswordCredential) -> None:
+        await self._db.delete(credential)

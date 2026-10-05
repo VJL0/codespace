@@ -34,9 +34,21 @@ class Settings(BaseSettings):
     github_client_secret: str
     oauth_session_secret_key: str
 
+    # Email (Resend in production; logged elsewhere)
+    resend_api_key: str
+    email_from: str
+
+    # Keys the rate limiter's per-email buckets by HMAC, so its table isn't a
+    # list of every address someone tried.
+    rate_limit_secret_key: str
+
     @property
     def is_development(self) -> bool:
         return self.environment == "development"
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production"
 
 
 settings = Settings()

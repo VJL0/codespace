@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 
 from app.api.deps import SessionDep
+from app.api.errors import api_error
 from app.core.config import settings
 from app.modules.auth.audit import audit
 from app.modules.auth.dependencies import (
@@ -36,7 +37,10 @@ from app.modules.auth.providers.base import (
     OAuthTransaction,
 )
 from app.modules.auth.providers.registry import OAuthProviderRegistry
-from app.modules.auth.repository import OAuthAccountRepository
+from app.modules.auth.repository import (
+    OAuthAccountRepository,
+    PasswordCredentialRepository,
+)
 from app.modules.auth.schemas import (
     AuthorizationRead,
     CurrentUserRead,
@@ -111,6 +115,7 @@ async def get_sign_in_methods(
     emails = await UserEmailRepository(db).list_for_user(user_id)
 
     return SignInMethodsRead(
+        has_password=await PasswordCredentialRepository(db).get(user_id) is not None,
         identities=[
             IdentityRead(
                 provider=account.provider,
@@ -146,11 +151,11 @@ async def unlink_oauth_account(
     try:
         await auth_service.unlink_oauth_account(user_session.user, provider)
     except OAuthAccountNotLinkedError as exc:
-        raise _api_error(
+        raise api_error(
             status.HTTP_404_NOT_FOUND, "not_linked", "That account isn't linked."
         ) from exc
     except LastSignInMethodError as exc:
-        raise _api_error(
+        raise api_error(
             status.HTTP_409_CONFLICT,
             "last_method",
             "This is your only way to sign in. Add another one first.",
@@ -160,10 +165,6 @@ async def unlink_oauth_account(
     audit("auth.oauth.unlinked", user_id=user_session.user_id, provider=provider.value)
 
     return Response(status_code=204)
-
-
-def _api_error(status_code: int, code: str, message: str) -> HTTPException:
-    return HTTPException(status_code, {"code": code, "message": message})
 
 
 def _get_adapter(
@@ -233,7 +234,7 @@ async def _authorization(
         )
     except OAuthProviderError as exc:
         logger.warning("OAuth start failed for %s: %s", adapter.provider.value, exc)
-        raise _api_error(
+        raise api_error(
             status.HTTP_502_BAD_GATEWAY,
             "oauth_failed",
             "The provider couldn't be reached. Try again.",
@@ -257,7 +258,7 @@ async def start_oauth_link(
     adapter = _get_adapter(registry, provider)
 
     if await OAuthAccountRepository(db).get_for_user(user_session.user_id, provider):
-        raise _api_error(
+        raise api_error(
             status.HTTP_409_CONFLICT,
             "provider_already_linked",
             "You already have an account with this provider linked.",
@@ -280,7 +281,7 @@ async def start_oauth_reauthentication(
     adapter = _get_adapter(registry, provider)
 
     if adapter.forced_reauth_params() is None:
-        raise _api_error(
+        raise api_error(
             status.HTTP_400_BAD_REQUEST,
             "reauth_unsupported",
             "This provider can't confirm it's you.",
@@ -289,7 +290,7 @@ async def start_oauth_reauthentication(
     if not await OAuthAccountRepository(db).get_for_user(
         user_session.user_id, provider
     ):
-        raise _api_error(
+        raise api_error(
             status.HTTP_409_CONFLICT, "not_linked", "That account isn't linked."
         )
 
