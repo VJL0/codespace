@@ -1,5 +1,5 @@
 class AccountExistsError(Exception):
-    """Another account's user already owns this email."""
+    """Another user already owns this verified email."""
 
 
 class OAuthProviderError(Exception):

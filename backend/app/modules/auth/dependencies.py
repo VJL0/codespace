@@ -11,7 +11,7 @@ from app.modules.auth.repository import OAuthAccountRepository, UserSessionRepos
 from app.modules.auth.service import AuthService
 from app.modules.auth.session import SESSION_COOKIE_NAME, SessionService
 from app.modules.users.models import User
-from app.modules.users.repository import UserRepository
+from app.modules.users.repository import UserEmailRepository, UserRepository
 
 AuthSessionToken = Annotated[
     str | None,
@@ -20,7 +20,9 @@ AuthSessionToken = Annotated[
 
 
 async def get_auth_service(db: SessionDep) -> AuthService:
-    return AuthService(OAuthAccountRepository(db), UserRepository(db))
+    return AuthService(
+        OAuthAccountRepository(db), UserRepository(db), UserEmailRepository(db)
+    )
 
 
 async def get_session_service(db: SessionDep) -> SessionService:

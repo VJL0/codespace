@@ -6,17 +6,23 @@ from app.modules.auth.exceptions import AccountExistsError
 from app.modules.auth.models import OAuthAccount
 from app.modules.auth.providers.base import OAuthIdentity
 from app.modules.auth.repository import OAuthAccountRepository
-from app.modules.users.models import User
-from app.modules.users.repository import UserRepository
+from app.modules.users.emails import normalize_email
+from app.modules.users.models import User, UserEmail
+from app.modules.users.repository import UserEmailRepository, UserRepository
 
 
 class AuthService:
-    def __init__(self, accounts: OAuthAccountRepository, users: UserRepository) -> None:
+    def __init__(
+        self,
+        accounts: OAuthAccountRepository,
+        users: UserRepository,
+        emails: UserEmailRepository,
+    ) -> None:
         self._accounts = accounts
         self._users = users
+        self._emails = emails
 
     async def sign_in_with_oauth(self, oauth_identity: OAuthIdentity) -> User:
-        email = oauth_identity.email
         now = datetime.now(UTC)
 
         account = await self._accounts.get_by_provider_user_id(
@@ -24,8 +30,7 @@ class AuthService:
         )
 
         if account is not None:
-            account.provider_email = email
-            account.provider_email_verified = oauth_identity.email_verified
+            account.email_snapshot = oauth_identity.email
 
             user = await self._users.get(account.user_id)
 
@@ -39,13 +44,19 @@ class AuthService:
 
             return user
 
-        # Each user has exactly one account, so a matching email belongs to
-        # someone who signs in another way; never attach to it on email alone.
-        if await self._users.email_exists(email):
+        verified_email = oauth_identity.verified_email
+
+        # Someone already owns this address. It may well be the same person,
+        # but a matching email proves nothing about that: never attach to an
+        # account on email alone. They sign in there and link this provider.
+        if (
+            verified_email is not None
+            and await self._emails.get_verified(normalize_email(verified_email))
+            is not None
+        ):
             raise AccountExistsError
 
         user = User(
-            email=email,
             full_name=oauth_identity.full_name,
             avatar_url=oauth_identity.avatar_url,
             last_sign_in_at=now,
@@ -56,9 +67,16 @@ class AuthService:
                 user=user,
                 provider=oauth_identity.provider,
                 provider_user_id=oauth_identity.provider_user_id,
-                provider_email=email,
-                provider_email_verified=oauth_identity.email_verified,
+                email_snapshot=oauth_identity.email,
             )
         )
+
+        # Without a provider-verified email, the user simply has none yet.
+        if verified_email is not None:
+            self._emails.add(
+                UserEmail(
+                    user=user, email=verified_email, verified_at=now, is_primary=True
+                )
+            )
 
         return user

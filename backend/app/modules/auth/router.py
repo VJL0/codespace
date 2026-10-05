@@ -26,6 +26,7 @@ from app.modules.auth.providers.base import OAuthProviderAdapter
 from app.modules.auth.providers.registry import OAuthProviderRegistry
 from app.modules.auth.schemas import CurrentUserRead
 from app.modules.auth.session import delete_session_cookie, finish_sign_in
+from app.modules.users.repository import UserEmailRepository
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,14 @@ router = APIRouter()
 
 
 @router.get("/me")
-async def get_me(current_user: CurrentUser) -> CurrentUserRead:
-    return CurrentUserRead.model_validate(current_user)
+async def get_me(current_user: CurrentUser, db: SessionDep) -> CurrentUserRead:
+    primary_email = await UserEmailRepository(db).get_primary(current_user.id)
+
+    return CurrentUserRead(
+        name=current_user.full_name,
+        email=primary_email.email if primary_email else None,
+        avatar_url=current_user.avatar_url,
+    )
 
 
 @router.post("/logout", status_code=204)
@@ -126,9 +133,6 @@ async def handle_oauth_callback(
     except OAuthProviderError as exc:
         logger.warning("OAuth callback failed for %s: %s", provider.value, exc)
         return _failed_sign_in(provider, "oauth_failed")
-
-    if not identity.email_verified:
-        return _failed_sign_in(provider, "email_unverified")
 
     try:
         user = await auth_service.sign_in_with_oauth(identity)

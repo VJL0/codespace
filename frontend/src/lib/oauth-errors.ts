@@ -1,8 +1,6 @@
 // Error codes the backend's OAuth callback redirects back with as `?error=`.
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   oauth_failed: "Sign-in was cancelled or didn't complete. Try again.",
-  email_unverified:
-    "That account's email address isn't verified with the provider.",
   account_exists:
     "An account with this email already exists. Sign in with the account you used before.",
 }

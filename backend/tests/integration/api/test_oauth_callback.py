@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import OAuthAccount, UserSession
-from app.modules.users.models import User
+from app.modules.users.models import User, UserEmail
 from tests.support.auth_flow import (
     GITHUB_EMAILS,
     GITHUB_USER,
@@ -50,7 +50,7 @@ PROVIDERS = ["google", "microsoft", "github"]
         (
             "google",
             GOOGLE_CLAIMS["sub"],
-            "ada@example.com",
+            "Ada@Example.com",
             "Ada Lovelace",
             GOOGLE_CLAIMS["picture"],
         ),
@@ -64,7 +64,7 @@ PROVIDERS = ["google", "microsoft", "github"]
         (
             "github",
             "583231",
-            "octocat@github.com",
+            "Octocat@GitHub.com",
             "The Octocat",
             GITHUB_USER["avatar_url"],
         ),
@@ -93,7 +93,7 @@ async def test_sign_in_creates_user_account_and_session(
     assert account is not None
     assert account.provider.value == provider
     assert account.provider_user_id == provider_user_id
-    assert account.provider_email_verified is True
+    assert account.email_snapshot == email
 
 
 async def test_google_accepts_issuer_without_scheme(
@@ -149,7 +149,7 @@ async def test_signing_in_again_replaces_the_session(
     assert (await client.get("/api/auth/me")).status_code == 401
 
 
-# --- Refused sign-ins ---------------------------------------------------------
+# --- Sign-ins without an email ------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -168,21 +168,39 @@ async def test_signing_in_again_replaces_the_session(
                 "github_emails": [{**GITHUB_EMAILS[1], "verified": False}],
             },
         ),
+        ("github", {"github_user": GITHUB_USER, "github_emails": [GITHUB_EMAILS[0]]}),
+        (
+            "microsoft",
+            {"claims": {k: v for k, v in MICROSOFT_CLAIMS.items() if k != "email"}},
+        ),
     ],
-    ids=["google", "microsoft-no-xms_edov", "microsoft-xms_edov-false", "github"],
+    ids=[
+        "google",
+        "microsoft-no-xms_edov",
+        "microsoft-xms_edov-false",
+        "github",
+        "github-no-primary-email",
+        "microsoft-no-email",
+    ],
 )
-async def test_unverified_email_is_refused(
+async def test_sign_in_without_a_verified_email_leaves_the_user_without_one(
     client: httpx2.AsyncClient,
     fake_oauth: FakeOAuthServer,
     db: AsyncSession,
     provider: str,
     provider_response: dict[str, Any],
 ) -> None:
+    # Sign-in rests on the provider's user ID; an email it doesn't vouch for
+    # is never recorded as the user's.
     response = await sign_in(client, fake_oauth, provider, **provider_response)
 
-    assert frontend_error(response) == "email_unverified"
-    assert await count_rows(db, User) == 0
-    assert SESSION_COOKIE not in client.cookies
+    assert frontend_error(response) is None
+    assert (await client.get("/api/auth/me")).json()["email"] is None
+    assert await count_rows(db, User) == 1
+    assert await count_rows(db, UserEmail) == 0
+
+
+# --- Refused sign-ins ---------------------------------------------------------
 
 
 async def test_same_email_from_another_provider_is_refused(
@@ -196,7 +214,8 @@ async def test_same_email_from_another_provider_is_refused(
         fake_oauth,
         "github",
         github_user=GITHUB_USER,
-        github_emails=[{**GITHUB_EMAILS[1], "email": "ada@example.com"}],
+        # Ada@Example.com in another letter case: the domain's doesn't matter.
+        github_emails=[{**GITHUB_EMAILS[1], "email": "Ada@EXAMPLE.COM"}],
     )
 
     assert frontend_error(response) == "account_exists"
@@ -204,34 +223,21 @@ async def test_same_email_from_another_provider_is_refused(
     assert await count_rows(db, OAuthAccount) == 1
 
 
-@pytest.mark.parametrize(
-    ("github_user", "github_emails"),
-    [
-        pytest.param(GITHUB_USER, [GITHUB_EMAILS[0]], id="no-primary-email"),
-        pytest.param(
-            {k: v for k, v in GITHUB_USER.items() if k != "id"},
-            GITHUB_EMAILS,
-            id="no-user-id",
-        ),
-    ],
-)
-async def test_github_profile_without_identity_fails(
+async def test_github_profile_without_a_user_id_fails(
     client: httpx2.AsyncClient,
     fake_oauth: FakeOAuthServer,
     db: AsyncSession,
     caplog: pytest.LogCaptureFixture,
-    github_user: dict[str, Any],
-    github_emails: list[dict[str, Any]],
 ) -> None:
     response = await sign_in(
         client,
         fake_oauth,
         "github",
-        github_user=github_user,
-        github_emails=github_emails,
+        github_user={k: v for k, v in GITHUB_USER.items() if k != "id"},
+        github_emails=GITHUB_EMAILS,
     )
 
-    assert_oauth_failed(response, caplog, "GitHub returned no user ID or primary email")
+    assert_oauth_failed(response, caplog, "GitHub returned no user ID")
     assert await count_rows(db, User) == 0
 
 

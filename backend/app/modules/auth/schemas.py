@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
 
 class CurrentUserRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    name: str | None = Field(validation_alias="full_name")
-    email: str
+    name: str | None
+    # The primary verified email; a user who signed in with a provider that
+    # vouched for none has no email.
+    email: str | None
     avatar_url: str | None

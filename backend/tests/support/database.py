@@ -19,7 +19,7 @@ from app.modules.users.models import User
 from tests.support.environment import BACKEND_DIR
 
 type MakeUser = Callable[..., Awaitable[User]]
-"""The `make_user` fixture: `await make_user(email=..., **fields)`."""
+"""The `make_user` fixture: `await make_user(email=... | None, **fields)`."""
 
 
 def alembic_config() -> Config:

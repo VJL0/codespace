@@ -13,20 +13,37 @@ from starlette.responses import RedirectResponse
 
 from app.modules.auth.exceptions import OAuthProviderError
 from app.modules.auth.models import OAuthProvider
+from app.modules.users.emails import EmailNotValidError, normalize_email
 
 
 class OAuthIdentity(BaseModel):
     provider: OAuthProvider
     provider_user_id: str = Field(min_length=1)
-    email: str = Field(min_length=1)
+    # Optional: sign-in rests on provider_user_id alone, and a provider may
+    # send no email (Microsoft often doesn't) or an unverified one.
+    email: str | None = None
     email_verified: bool = False
     full_name: str | None = None
     avatar_url: str | None = None
 
     @field_validator("email")
     @classmethod
-    def normalize_email(cls, value: str) -> str:
-        return value.strip().lower()
+    def drop_invalid_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        try:
+            normalize_email(value)
+        except EmailNotValidError:
+            return None
+
+        return value.strip()
+
+    @property
+    def verified_email(self) -> str | None:
+        """The email, if the provider vouches that this account owns it."""
+
+        return self.email if self.email_verified else None
 
 
 class OAuthProviderAdapter(ABC):

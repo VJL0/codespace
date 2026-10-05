@@ -12,7 +12,6 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
-    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
@@ -57,7 +56,8 @@ class UserSession(TimestampMixin, Base):
 
 
 class OAuthAccount(TimestampMixin, Base):
-    """The one provider account a user signs in with (User 1 ─── 1 OAuthAccount).
+    """A provider account a user signs in with, at most one per provider
+    (User 1 ─── * OAuthAccount).
 
     provider_user_id is the provider's immutable user ID, never an email or
     username: Google's `sub`, Microsoft's "<oid>.<tid>", GitHub's numeric `id`.
@@ -69,7 +69,6 @@ class OAuthAccount(TimestampMixin, Base):
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
-        unique=True,
     )
 
     provider: Mapped[OAuthProvider] = mapped_column(
@@ -84,27 +83,23 @@ class OAuthAccount(TimestampMixin, Base):
     # (73 characters) and a GitHub int64 ID are shorter.
     provider_user_id: Mapped[str] = mapped_column(String(255))
 
-    provider_email: Mapped[str | None] = mapped_column(String(254))
-
-    provider_email_verified: Mapped[bool] = mapped_column(server_default=text("false"))
+    # The email the provider last reported, for display only: it identifies
+    # nothing and proves nothing (verified addresses live in user_emails).
+    email_snapshot: Mapped[str | None] = mapped_column(String(254))
 
     user: Mapped[User] = relationship(lazy="raise")
 
     __table_args__ = (
         UniqueConstraint("provider", "provider_user_id"),
+        UniqueConstraint("user_id", "provider"),
         CheckConstraint(
             "length(provider_user_id) > 0", name="provider_user_id_not_empty"
         ),
     )
 
-    @validates("provider_email")
-    def normalize_provider_email(self, key: str, value: str | None) -> str | None:
-        if value is None:
-            return None
-
-        email = value.strip().lower()
-
-        return email or None
+    @validates("email_snapshot")
+    def strip_email_snapshot(self, key: str, value: str | None) -> str | None:
+        return (value or "").strip() or None
 
     def __repr__(self) -> str:
         return (

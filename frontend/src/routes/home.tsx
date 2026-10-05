@@ -29,7 +29,9 @@ export function Component() {
         <h1 className="text-xl font-semibold">
           Welcome{user.name ? `, ${user.name}` : ""}
         </h1>
-        <p className="text-sm text-muted-foreground">{user.email}</p>
+        {user.email && (
+          <p className="text-sm text-muted-foreground">{user.email}</p>
+        )}
       </div>
 
       <div className="flex gap-2">
