@@ -15,6 +15,14 @@ class UserRepository:
     async def get(self, user_id: uuid.UUID) -> User | None:
         return await self._db.get(User, user_id)
 
+    async def lock(self, user_id: uuid.UUID) -> None:
+        """Hold the user's row until the transaction ends, so concurrent
+        changes to their sign-in methods run one at a time."""
+
+        await self._db.execute(
+            select(User.id).where(User.id == user_id).with_for_update()
+        )
+
     def add(self, user: User) -> None:
         self._db.add(user)
 
@@ -30,6 +38,15 @@ class UserEmailRepository:
             select(UserEmail).where(
                 UserEmail.normalized_email == normalized_email,
                 UserEmail.verified_at.is_not(None),
+            )
+        )
+
+    async def list_for_user(self, user_id: uuid.UUID) -> list[UserEmail]:
+        return list(
+            await self._db.scalars(
+                select(UserEmail)
+                .where(UserEmail.user_id == user_id)
+                .order_by(UserEmail.is_primary.desc(), UserEmail.created_at)
             )
         )
 

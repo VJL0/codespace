@@ -74,3 +74,46 @@ export async function logout(): Promise<void> {
 export async function logoutEverywhere(): Promise<void> {
   await apiFetch("/api/auth/logout-all", { method: "POST" })
 }
+
+export interface SignInMethods {
+  identities: {
+    provider: OAuthProvider
+    email_snapshot: string | null
+    created_at: string
+  }[]
+  emails: { email: string; is_primary: boolean; verified: boolean }[]
+  // Linked providers that can confirm it's the user by asking for their
+  // credentials again.
+  reauthentication_providers: OAuthProvider[]
+  recently_authenticated: boolean
+}
+
+export async function getSignInMethods(): Promise<SignInMethods> {
+  return (await apiFetch("/api/auth/methods")).json()
+}
+
+// Linking and reauthenticating continue at the provider, which returns the
+// browser to /settings.
+async function continueAtProvider(
+  provider: OAuthProvider,
+  purpose: "link" | "reauthenticate"
+): Promise<void> {
+  const response = await apiFetch(`/api/auth/${provider}/${purpose}`, {
+    method: "POST",
+  })
+  const { authorization_url } = await response.json()
+
+  window.location.assign(authorization_url)
+}
+
+export function linkProvider(provider: OAuthProvider): Promise<void> {
+  return continueAtProvider(provider, "link")
+}
+
+export function reauthenticateWith(provider: OAuthProvider): Promise<void> {
+  return continueAtProvider(provider, "reauthenticate")
+}
+
+export async function unlinkProvider(provider: OAuthProvider): Promise<void> {
+  await apiFetch(`/api/auth/identities/${provider}`, { method: "DELETE" })
+}

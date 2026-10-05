@@ -7,7 +7,7 @@ import logging
 import httpx2
 import pytest
 
-from tests.support.auth_flow import SESSION_COOKIE, approval, sign_in
+from tests.support.auth_flow import SESSION_COOKIE, approval, complete_flow, sign_in
 from tests.support.fake_oauth import FakeOAuthServer
 
 
@@ -75,3 +75,23 @@ async def test_no_secret_reaches_the_audit_log(
     logged = audit_log.text
     assert client.cookies[SESSION_COOKIE] not in logged
     assert code not in logged
+
+
+async def test_reauthentication_linking_and_unlinking_are_recorded(
+    client: httpx2.AsyncClient,
+    fake_oauth: FakeOAuthServer,
+    audit_log: pytest.LogCaptureFixture,
+) -> None:
+    await sign_in(client, fake_oauth, "google", **approval("google"))
+    await complete_flow(
+        client, fake_oauth, "google", "reauthenticate", **approval("google")
+    )
+    await complete_flow(client, fake_oauth, "github", "link", **approval("github"))
+    await client.delete("/api/auth/identities/github")
+
+    assert [record.event for record in events(audit_log)] == [
+        "auth.login.succeeded",
+        "auth.reauthenticated",
+        "auth.oauth.linked",
+        "auth.oauth.unlinked",
+    ]

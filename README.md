@@ -150,6 +150,14 @@ and the same for `microsoft` and `github`).
 Behind a proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy
 IPs>` so the app sees the client's address rather than the proxy's.
 
+To confirm it's the user before a sign-in method changes, the app asks
+Google or Microsoft to make them enter their credentials again and checks
+the ID token's `auth_time`. Microsoft only sends `auth_time` as an optional
+claim: in the Entra app registration, under **Token configuration**, add the
+`auth_time` optional claim to the ID token, or Microsoft reauthentication
+will always fail. GitHub can't force a credential prompt, so it can't be used
+to reauthenticate.
+
 ## What I'm Working On
 
 Current development is focused on:

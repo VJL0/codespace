@@ -4,6 +4,7 @@ import uuid
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.modules.auth.models import OAuthAccount, OAuthProvider, UserSession
 
@@ -22,8 +23,29 @@ class OAuthAccountRepository:
             )
         )
 
+    async def get_for_user(
+        self, user_id: uuid.UUID, provider: OAuthProvider
+    ) -> OAuthAccount | None:
+        return await self._db.scalar(
+            select(OAuthAccount).where(
+                OAuthAccount.user_id == user_id, OAuthAccount.provider == provider
+            )
+        )
+
+    async def list_for_user(self, user_id: uuid.UUID) -> list[OAuthAccount]:
+        return list(
+            await self._db.scalars(
+                select(OAuthAccount)
+                .where(OAuthAccount.user_id == user_id)
+                .order_by(OAuthAccount.created_at)
+            )
+        )
+
     def add(self, account: OAuthAccount) -> None:
         self._db.add(account)
+
+    async def delete(self, account: OAuthAccount) -> None:
+        await self._db.delete(account)
 
 
 class UserSessionRepository:
@@ -31,8 +53,12 @@ class UserSessionRepository:
         self._db = db
 
     async def get_by_token_hash(self, token_hash: str) -> UserSession | None:
+        """The session with this token hash, its user loaded."""
+
         return await self._db.scalar(
-            select(UserSession).where(UserSession.token_hash == token_hash)
+            select(UserSession)
+            .options(joinedload(UserSession.user))
+            .where(UserSession.token_hash == token_hash)
         )
 
     def add(self, user_session: UserSession) -> None:

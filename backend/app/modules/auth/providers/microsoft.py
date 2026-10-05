@@ -67,6 +67,12 @@ class MicrosoftOAuthAdapter(OAuthProviderAdapter):
 
         return issuer == expected and key_issuer == expected
 
+    def forced_reauth_params(self) -> dict[str, str]:
+        # prompt=login makes Microsoft ask for credentials, ignoring SSO. Its
+        # ID tokens only carry `auth_time` as an optional claim, which the
+        # app registration must request; without it, reauthentication fails.
+        return {"prompt": "login"}
+
     async def fetch_identity(self, token: dict[str, Any]) -> OAuthIdentity:
         claims = token.get("userinfo")
 
@@ -88,4 +94,5 @@ class MicrosoftOAuthAdapter(OAuthProviderAdapter):
             # Microsoft has no `email_verified`; `xms_edov` is its equivalent.
             email_verified=claims.get("xms_edov", False),
             full_name=claims.get("name"),
+            auth_time=claims.get("auth_time"),
         )

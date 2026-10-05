@@ -61,43 +61,70 @@ export function newIdentity(provider: Provider): TestIdentity {
   return { provider, name, email, response }
 }
 
-const PROVIDER_HOSTS = [
-  "accounts.google.com",
-  "login.microsoftonline.com",
-  "github.com",
-]
+const PROVIDER_BY_HOST: Record<string, Provider> = {
+  "accounts.google.com": "google",
+  "login.microsoftonline.com": "microsoft",
+  "github.com": "github",
+}
 
-// The providers' authorization pages aren't reachable from tests, so where
-// the API redirects the browser to one, send it to the API's test-only
-// stand-in instead, which answers as `response`. Playwright doesn't route
-// requests that follow a redirect, so this rewrites the API's redirect
-// rather than the provider request.
+// How each provider answers, for those a test expects to be asked.
+export type ProviderResponses = Partial<Record<Provider, ProviderResponse>>
+
+// The providers' authorization pages aren't reachable from tests, so send
+// the browser to the API's test-only stand-in instead, which answers as the
+// test says. Later calls take precedence; a provider a call has no answer
+// for falls through to earlier ones.
 export async function answerProvidersWith(
   context: BrowserContext,
-  response: ProviderResponse
+  responses: ProviderResponses
 ): Promise<void> {
   const baseURL = test.info().project.use.baseURL
 
-  await context.route("**/api/auth/*/login", async (route) => {
-    // The real response, so its OAuth state cookie is still set.
-    const login = await route.fetch({ maxRedirects: 0 })
-    const location = login.headers()["location"] ?? ""
+  function approval(providerUrl: string): string | null {
+    const provider = PROVIDER_BY_HOST[new URL(providerUrl, baseURL).hostname]
+    const response = provider && responses[provider]
 
-    if (!PROVIDER_HOSTS.includes(new URL(location, baseURL).hostname)) {
-      return route.fulfill({ response: login })
+    if (!response) {
+      return null
     }
 
     const approve = new URL("/api/__e2e__/oauth/authorize", baseURL)
     approve.search = new URLSearchParams({
-      url: location,
+      url: providerUrl,
       scenario: JSON.stringify(response),
     }).toString()
 
+    return approve.toString()
+  }
+
+  // Sign-in: the API redirects to the provider, and Playwright doesn't
+  // route requests that follow a redirect, so rewrite the API's redirect.
+  await context.route("**/api/auth/*/login", async (route) => {
+    // The real response, so its OAuth state cookie is still set.
+    const login = await route.fetch({ maxRedirects: 0 })
+    const location = approval(login.headers()["location"] ?? "")
+
+    if (location === null) {
+      return route.fallback()
+    }
+
     return route.fulfill({
       response: login,
-      headers: { ...login.headers(), location: approve.toString() },
+      headers: { ...login.headers(), location },
     })
   })
+
+  // Linking and reauthenticating: the SPA navigates to the provider itself.
+  await context.route(
+    (url) => url.hostname in PROVIDER_BY_HOST,
+    (route) => {
+      const location = approval(route.request().url())
+
+      return location === null
+        ? route.fallback()
+        : route.fulfill({ status: 302, headers: { location } })
+    }
+  )
 }
 
 export async function signInWith(
@@ -105,7 +132,7 @@ export async function signInWith(
   provider: Provider,
   response: ProviderResponse
 ): Promise<void> {
-  await answerProvidersWith(page.context(), response)
+  await answerProvidersWith(page.context(), { [provider]: response })
   await page.goto("/login")
   await page
     .getByRole("link", { name: `Sign in with ${PROVIDER_LABELS[provider]}` })

@@ -77,18 +77,53 @@ async def sign_in(
     )
 
 
+async def start_flow(
+    client: httpx2.AsyncClient, provider: str, purpose: str
+) -> httpx2.Response:
+    """POST /api/auth/{provider}/{purpose}: start a link or reauthentication,
+    which answers with the provider URL to send the browser to."""
+
+    return await client.post(f"/api/auth/{provider}/{purpose}")
+
+
+async def complete_flow(
+    client: httpx2.AsyncClient,
+    fake_oauth: FakeOAuthServer,
+    provider: str,
+    purpose: str,
+    **provider_response: Any,
+) -> httpx2.Response:
+    """Start a link or reauthentication, approve it at the provider and
+    return the callback's response."""
+
+    start = await start_flow(client, provider, purpose)
+    assert start.status_code == 200, start.text
+
+    return await client.get(
+        fake_oauth.authorize(start.json()["authorization_url"], **provider_response)
+    )
+
+
 def set_session_token(client: httpx2.AsyncClient, token: str) -> None:
     client.cookies.set(SESSION_COOKIE, token, domain=APP_HOST)
 
 
-def frontend_error(response: httpx2.Response) -> str | None:
-    """The `error` a redirect back to the frontend carries, or None."""
+def frontend_redirect(response: httpx2.Response) -> tuple[str, dict[str, str]]:
+    """The SPA path and query a redirect back to the frontend carries."""
 
     assert response.status_code == 303, response.text
     location = urlsplit(response.headers["location"])
     assert f"{location.scheme}://{location.netloc}" == APP_URL
 
-    return parse_qs(location.query).get("error", [None])[0]
+    return location.path, {
+        key: values[0] for key, values in parse_qs(location.query).items()
+    }
+
+
+def frontend_error(response: httpx2.Response) -> str | None:
+    """The `error` a redirect back to the frontend carries, or None."""
+
+    return frontend_redirect(response)[1].get("error")
 
 
 def assert_oauth_failed(

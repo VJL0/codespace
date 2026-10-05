@@ -31,6 +31,11 @@ class GoogleOAuthAdapter(OAuthProviderAdapter):
             },
         }
 
+    def forced_reauth_params(self) -> dict[str, str]:
+        # Google has no prompt=login; max_age=0 makes it reauthenticate, and
+        # OIDC then requires `auth_time` in the ID token.
+        return {"max_age": "0"}
+
     async def fetch_identity(self, token: dict[str, Any]) -> OAuthIdentity:
         claims = token.get("userinfo")
 
@@ -43,5 +48,6 @@ class GoogleOAuthAdapter(OAuthProviderAdapter):
             email=claims.get("email"),
             email_verified=claims.get("email_verified", False),
             full_name=claims.get("name"),
+            auth_time=claims.get("auth_time"),
             avatar_url=claims.get("picture"),
         )

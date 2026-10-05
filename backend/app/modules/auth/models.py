@@ -41,6 +41,12 @@ class UserSession(TimestampMixin, Base):
     # Hex SHA-256 of the session token; the token itself is never stored.
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
 
+    # The last time the person proved they're present (a password, an email
+    # link, a provider reauthentication that forced credential entry). A
+    # plain provider sign-in leaves it unset: its SSO proves nothing about
+    # who is at the keyboard now.
+    authenticated_at: Mapped[datetime | None]
+
     last_seen_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     expires_at: Mapped[datetime]
