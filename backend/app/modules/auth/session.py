@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.modules.auth.models import UserSession
+from app.modules.auth.repository import UserSessionRepository
+from app.modules.users.models import User
+from app.modules.users.repository import UserRepository
 
 if TYPE_CHECKING:
     from fastapi import Response
@@ -23,45 +22,57 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-async def create_session(db: AsyncSession, *, user_id: uuid.UUID) -> str:
-    token = secrets.token_urlsafe(TOKEN_BYTES)
+class SessionService:
+    def __init__(self, sessions: UserSessionRepository, users: UserRepository) -> None:
+        self._sessions = sessions
+        self._users = users
 
-    db.add(
-        UserSession(
-            user_id=user_id,
-            token_hash=_hash_token(token),
+    def create_session(self, *, user: User) -> str:
+        token = secrets.token_urlsafe(TOKEN_BYTES)
+
+        # By relationship rather than user.id: a user created in this same
+        # transaction has no id until the flush.
+        self._sessions.add(
+            UserSession(
+                user=user,
+                token_hash=_hash_token(token),
+                expires_at=datetime.now(UTC) + SESSION_ABSOLUTE_TIMEOUT,
+            )
         )
-    )
 
-    return token
+        return token
 
+    async def get_user_for_session(self, token: str) -> User | None:
+        """Return the active user a session token belongs to, or None."""
 
-async def get_user_id_for_session(db: AsyncSession, token: str) -> uuid.UUID | None:
-    session_row = await db.scalar(
-        select(UserSession).where(UserSession.token_hash == _hash_token(token))
-    )
+        user_session = await self._sessions.get_by_token_hash(_hash_token(token))
 
-    if session_row is None:
-        return None
+        if user_session is None:
+            return None
 
-    now = datetime.now(UTC)
+        now = datetime.now(UTC)
 
-    idle_deadline = session_row.last_seen_at + timedelta(minutes=30)
-    absolute_deadline = session_row.created_at + SESSION_ABSOLUTE_TIMEOUT
+        is_expired = now >= user_session.expires_at
+        is_idle = now - user_session.last_seen_at >= timedelta(minutes=30)
 
-    if now > idle_deadline or now > absolute_deadline:
-        await db.delete(session_row)
-        return None
+        if is_expired or is_idle:
+            await self._sessions.delete(user_session)
+            return None
 
-    session_row.last_seen_at = now
+        # Refresh the idle deadline at most once a minute, so authenticated
+        # requests don't each cost a write.
+        if now - user_session.last_seen_at > timedelta(minutes=1):
+            user_session.last_seen_at = now
 
-    return session_row.user_id
+        user = await self._users.get(user_session.user_id)
 
+        if user is None or not user.is_active:
+            return None
 
-async def revoke_session(db: AsyncSession, token: str) -> None:
-    await db.execute(
-        delete(UserSession).where(UserSession.token_hash == _hash_token(token))
-    )
+        return user
+
+    async def revoke_session(self, token: str) -> None:
+        await self._sessions.delete_by_token_hash(_hash_token(token))
 
 
 def set_session_cookie(response: Response, *, token: str) -> None:
@@ -69,18 +80,18 @@ def set_session_cookie(response: Response, *, token: str) -> None:
         key=SESSION_COOKIE_NAME,
         value=token,
         max_age=int(SESSION_ABSOLUTE_TIMEOUT.total_seconds()),
-        httponly=True,
-        secure=True,
-        samesite="lax",
         path="/",
+        samesite="lax",
+        secure=True,
+        httponly=True,
     )
 
 
-def clear_session_cookie(response: Response) -> None:
+def delete_session_cookie(response: Response) -> None:
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
         path="/",
-        httponly=True,
-        secure=True,
         samesite="lax",
+        secure=True,
+        httponly=True,
     )

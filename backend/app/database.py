@@ -1,5 +1,3 @@
-from collections.abc import AsyncGenerator
-
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -10,22 +8,21 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import settings
 
-engine: AsyncEngine = create_async_engine(
-    settings.database_url,
-    pool_pre_ping=True,
-)
 
-session_factory = async_sessionmaker(
-    bind=engine,
-    expire_on_commit=False,
-)
+def create_database_engine() -> AsyncEngine:
+    return create_async_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+    )
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    async with session_factory() as session:
-        yield session
+def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
 
 
-async def check_database() -> None:
+async def check_database(engine: AsyncEngine) -> None:
     async with engine.connect() as connection:
         await connection.execute(text("SELECT 1"))

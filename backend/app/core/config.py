@@ -24,18 +24,18 @@ class Settings(BaseSettings):
     # Database
     database_url: str
 
-    # Google OAuth
+    # OAuth
     google_client_id: str
     google_client_secret: str
+    microsoft_client_id: str
+    microsoft_client_secret: str
+    github_client_id: str
+    github_client_secret: str
     oauth_session_secret_key: str
 
     @property
     def is_development(self) -> bool:
         return self.environment == "development"
-
-    @property
-    def google_redirect_uri(self) -> str:
-        return f"{self.api_url}/api/auth/google/callback"
 
 
 settings = Settings()

@@ -1,62 +1,116 @@
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    CheckConstraint,
+    Enum,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    func,
+    text,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.models.base import Base
 from app.models.mixins import TimestampMixin
 
+if TYPE_CHECKING:
+    from app.modules.users.models import User
+
+
+class OAuthProvider(enum.StrEnum):
+    GOOGLE = "google"
+    MICROSOFT = "microsoft"
+    GITHUB = "github"
+
 
 class UserSession(TimestampMixin, Base):
-    """
-    Server-side record backing an opaque session cookie.
-
-    Only a hash of the cookie's random token is stored, never the token
-    itself, so reading this table (e.g. from a backup) can't be used to
-    forge a valid cookie. Revoking a session (logout) means deleting the
-    row here - the cookie alone is worthless without a matching row.
-
-    `created_at` (from TimestampMixin) anchors the absolute timeout;
-    `last_seen_at` slides forward on each use and anchors the idle timeout.
-    """
-
     __tablename__ = "user_sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid7,
-    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid7)
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        index=True,
     )
 
-    token_hash: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-    )
+    # Hex SHA-256 of the session token; the token itself is never stored.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
 
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-    )
+    last_seen_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+    expires_at: Mapped[datetime]
+
+    user: Mapped[User] = relationship(lazy="raise")
 
     __table_args__ = (
-        UniqueConstraint(
-            "token_hash",
-            name="uq_user_sessions_token_hash",
-        ),
-        Index("ix_user_sessions_user_id", "user_id"),
-        Index("ix_user_sessions_last_seen_at", "last_seen_at"),
+        CheckConstraint("created_at < expires_at", name="expires_after_created"),
     )
 
     def __repr__(self) -> str:
         return f"UserSession(id={self.id!s}, user_id={self.user_id!s})"
+
+
+class OAuthAccount(TimestampMixin, Base):
+    """The one provider account a user signs in with (User 1 ─── 1 OAuthAccount).
+
+    provider_user_id is the provider's immutable user ID, never an email or
+    username: Google's `sub`, Microsoft's "<oid>.<tid>", GitHub's numeric `id`.
+    """
+
+    __tablename__ = "oauth_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid7)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+    )
+
+    provider: Mapped[OAuthProvider] = mapped_column(
+        Enum(
+            OAuthProvider,
+            name="oauth_provider",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+    )
+
+    # 255: OIDC caps `sub` at 255 ASCII characters; Microsoft's two GUIDs
+    # (73 characters) and a GitHub int64 ID are shorter.
+    provider_user_id: Mapped[str] = mapped_column(String(255))
+
+    provider_email: Mapped[str | None] = mapped_column(String(254))
+
+    provider_email_verified: Mapped[bool] = mapped_column(server_default=text("false"))
+
+    user: Mapped[User] = relationship(lazy="raise")
+
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_user_id"),
+        CheckConstraint(
+            "length(provider_user_id) > 0", name="provider_user_id_not_empty"
+        ),
+    )
+
+    @validates("provider_email")
+    def normalize_provider_email(self, key: str, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        email = value.strip().lower()
+
+        return email or None
+
+    def __repr__(self) -> str:
+        return (
+            "OAuthAccount("
+            f"id={self.id!s}, "
+            f"user_id={self.user_id!s}, "
+            f"provider={self.provider.value!r}"
+            ")"
+        )

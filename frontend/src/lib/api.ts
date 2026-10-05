@@ -1,9 +1,10 @@
 import { API_URL } from "@/lib/config"
 
+export type OAuthProvider = "google" | "microsoft" | "github"
+
 export interface CurrentUser {
-  public_id: string
+  name: string | null
   email: string
-  full_name: string | null
   avatar_url: string | null
 }
 

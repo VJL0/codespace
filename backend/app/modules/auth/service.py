@@ -2,77 +2,63 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from app.modules.auth.exceptions import AccountExistsError
+from app.modules.auth.models import OAuthAccount
+from app.modules.auth.providers.base import OAuthIdentity
+from app.modules.auth.repository import OAuthAccountRepository
+from app.modules.users.models import User
+from app.modules.users.repository import UserRepository
 
-from app.modules.users.models import OAuthProvider, User, UserOAuthAccount
 
+class AuthService:
+    def __init__(self, accounts: OAuthAccountRepository, users: UserRepository) -> None:
+        self._accounts = accounts
+        self._users = users
 
-async def upsert_google_user(
-    session: AsyncSession,
-    *,
-    google_sub: str,
-    email: str,
-    full_name: str | None,
-    avatar_url: str | None,
-) -> User:
-    """
-    Resolve a Google sign-in to a local user.
+    async def sign_in_with_oauth(self, oauth_identity: OAuthIdentity) -> User:
+        email = oauth_identity.email
+        now = datetime.now(UTC)
 
-    Matches by the stable OIDC `sub` claim first. Only falls back to matching
-    an existing account by email because Google has already verified it -
-    `sub` is what stays stable if the user later changes their email.
-    """
-
-    normalized_email = email.strip().lower()
-    now = datetime.now(UTC)
-
-    oauth_account = await session.scalar(
-        select(UserOAuthAccount).where(
-            UserOAuthAccount.provider == OAuthProvider.GOOGLE,
-            UserOAuthAccount.provider_user_id == google_sub,
+        account = await self._accounts.get_by_provider_user_id(
+            oauth_identity.provider, oauth_identity.provider_user_id
         )
-    )
 
-    if oauth_account is not None:
-        oauth_account.provider_email = normalized_email
-        oauth_account.provider_email_verified = True
-        oauth_account.last_login_at = now
+        if account is not None:
+            account.provider_email = email
+            account.provider_email_verified = oauth_identity.email_verified
 
-        user = await session.get(User, oauth_account.user_id)
+            user = await self._users.get(account.user_id)
 
-        if user is None:
-            raise RuntimeError("OAuth account references a missing user.")
+            if user is None:
+                raise RuntimeError("OAuth account references a missing user.")
 
-        user.last_login_at = now
+            user.last_sign_in_at = now
 
-        if avatar_url:
-            user.avatar_url = avatar_url
+            if oauth_identity.avatar_url:
+                user.avatar_url = oauth_identity.avatar_url
+
+            return user
+
+        # Each user has exactly one account, so a matching email belongs to
+        # someone who signs in another way; never attach to it on email alone.
+        if await self._users.email_exists(email):
+            raise AccountExistsError
+
+        user = User(
+            email=email,
+            full_name=oauth_identity.full_name,
+            avatar_url=oauth_identity.avatar_url,
+            last_sign_in_at=now,
+        )
+        self._users.add(user)
+        self._accounts.add(
+            OAuthAccount(
+                user=user,
+                provider=oauth_identity.provider,
+                provider_user_id=oauth_identity.provider_user_id,
+                provider_email=email,
+                provider_email_verified=oauth_identity.email_verified,
+            )
+        )
 
         return user
-
-    user = await session.scalar(select(User).where(User.email == normalized_email))
-
-    if user is None:
-        user = User(
-            email=normalized_email,
-            full_name=full_name,
-            avatar_url=avatar_url,
-            is_verified=True,
-        )
-        session.add(user)
-        await session.flush()
-
-    session.add(
-        UserOAuthAccount(
-            user_id=user.id,
-            provider=OAuthProvider.GOOGLE,
-            provider_user_id=google_sub,
-            provider_email=normalized_email,
-            provider_email_verified=True,
-            last_login_at=now,
-        )
-    )
-    user.last_login_at = now
-
-    return user
