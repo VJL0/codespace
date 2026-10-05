@@ -8,10 +8,13 @@ from urllib.parse import parse_qs, urlsplit
 import httpx2
 import pytest
 
-from tests.support.environment import API_HOST, FRONTEND_URL
+from tests.support.environment import APP_HOST, APP_URL
 from tests.support.fake_oauth import MICROSOFT_ORG_TENANT, FakeOAuthServer
 
 SESSION_COOKIE = "__Host-Http-session"
+
+# What a browser sends with the SPA's same-origin fetch() calls.
+SAME_ORIGIN_HEADERS = {"x-csrf-protection": "1", "sec-fetch-site": "same-origin"}
 
 GOOGLE_CLAIMS = {
     "sub": "110169484474386276334",
@@ -75,7 +78,7 @@ async def sign_in(
 
 
 def set_session_token(client: httpx2.AsyncClient, token: str) -> None:
-    client.cookies.set(SESSION_COOKIE, token, domain=API_HOST)
+    client.cookies.set(SESSION_COOKIE, token, domain=APP_HOST)
 
 
 def frontend_error(response: httpx2.Response) -> str | None:
@@ -83,7 +86,7 @@ def frontend_error(response: httpx2.Response) -> str | None:
 
     assert response.status_code == 303, response.text
     location = urlsplit(response.headers["location"])
-    assert f"{location.scheme}://{location.netloc}" == FRONTEND_URL
+    assert f"{location.scheme}://{location.netloc}" == APP_URL
 
     return parse_qs(location.query).get("error", [None])[0]
 

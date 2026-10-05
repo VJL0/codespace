@@ -12,6 +12,7 @@ from app.modules.users.repository import UserRepository
 
 if TYPE_CHECKING:
     from fastapi import Response
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 TOKEN_BYTES = 32
 SESSION_COOKIE_NAME = "__Host-Http-session"
@@ -73,6 +74,32 @@ class SessionService:
 
     async def revoke_session(self, token: str) -> None:
         await self._sessions.delete_by_token_hash(_hash_token(token))
+
+    async def revoke_all_sessions(self, user: User) -> None:
+        await self._sessions.delete_for_user(user.id)
+
+
+async def finish_sign_in(
+    db: AsyncSession,
+    session_service: SessionService,
+    response: Response,
+    *,
+    user: User,
+    previous_token: str | None,
+) -> None:
+    """Start a fresh session for `user` and set its cookie on `response`.
+
+    A session the browser already had is revoked rather than reused, so a
+    token planted before sign-in (session fixation) never becomes signed in.
+    """
+
+    if previous_token is not None:
+        await session_service.revoke_session(previous_token)
+
+    token = session_service.create_session(user=user)
+    await db.commit()
+
+    set_session_cookie(response, token=token)
 
 
 def set_session_cookie(response: Response, *, token: str) -> None:

@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.middleware.sessions import SessionMiddleware
@@ -9,6 +8,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api.deps import get_engine
 from app.api.router import api_router
 from app.core.config import settings
+from app.core.request_id import RequestIdMiddleware
 from app.database import check_database
 from app.lifespan import lifespan
 
@@ -29,14 +29,6 @@ app.add_middleware(
 )
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.frontend_url],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-CSRF-Token"],
-)
-
-app.add_middleware(
     SessionMiddleware,
     secret_key=settings.oauth_session_secret_key,
     session_cookie="__Host-Http-oauth",
@@ -45,6 +37,9 @@ app.add_middleware(
     same_site="lax",
     https_only=True,
 )
+
+# Outermost, so every response (rejections included) carries the ID.
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(api_router, prefix="/api")
 

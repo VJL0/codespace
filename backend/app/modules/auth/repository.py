@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,4 +44,9 @@ class UserSessionRepository:
     async def delete_by_token_hash(self, token_hash: str) -> None:
         await self._db.execute(
             delete(UserSession).where(UserSession.token_hash == token_hash)
+        )
+
+    async def delete_for_user(self, user_id: uuid.UUID) -> None:
+        await self._db.execute(
+            delete(UserSession).where(UserSession.user_id == user_id)
         )
