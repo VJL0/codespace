@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 
-from app.modules.auth.exceptions import AccountExistsError
+from app.modules.auth.exceptions import AccountExistsError, PasswordAlreadySetError
 from app.modules.auth.models import PasswordCredential
 from app.modules.auth.passwords import hash_password, needs_rehash, verify_password
 from app.modules.auth.repository import PasswordCredentialRepository
@@ -21,6 +22,9 @@ class PasswordService:
         self._users = users
         self._emails = emails
         self._credentials = credentials
+
+    async def has_password(self, user_id: uuid.UUID) -> bool:
+        return await self._credentials.get(user_id) is not None
 
     async def authenticate(self, address: str, password: str) -> User | None:
         """The active user whose verified email and password these are, or
@@ -86,6 +90,24 @@ class PasswordService:
         )
 
         return user
+
+    async def set_password(
+        self, user_id: uuid.UUID, password: str, *, replace: bool
+    ) -> None:
+        """Set the user's password: a new one (`replace=False`, raising
+        PasswordAlreadySetError if they have one) or a replacement."""
+
+        credential = await self._credentials.get(user_id)
+        password_hash = await hash_password(password)
+
+        if credential is None:
+            self._credentials.add(
+                PasswordCredential(user_id=user_id, password_hash=password_hash)
+            )
+        elif replace:
+            credential.password_hash = password_hash
+        else:
+            raise PasswordAlreadySetError
 
     async def _upgrade_hash(
         self, credential: PasswordCredential, password: str

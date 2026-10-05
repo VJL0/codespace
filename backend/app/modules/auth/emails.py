@@ -59,3 +59,29 @@ def reauthentication(secret: str) -> Message:
             " sign out everywhere from your settings.</p>"
         ),
     )
+
+
+def password_reset(secret: str) -> Message:
+    return Message(
+        subject="Reset your CodeSpace password",
+        html=(
+            "<p>Use this link within 30 minutes to choose a new password. It"
+            " signs you out everywhere.</p>"
+            + _button(_link("/reset-password", secret), "Reset password")
+            + "<p>If you didn't ask for this, ignore this email: your password"
+            " stays as it is.</p>"
+        ),
+    )
+
+
+def password_setup(secret: str) -> Message:
+    return Message(
+        subject="Add a password to your CodeSpace account",
+        html=(
+            "<p>Use this link within 30 minutes to add a password, so you can"
+            " also sign in with your email.</p>"
+            + _button(_link("/password-setup", secret), "Add a password")
+            + "<p>If you didn't ask for this, someone may be using your session:"
+            " sign out everywhere from your settings.</p>"
+        ),
+    )

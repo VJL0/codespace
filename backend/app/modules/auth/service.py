@@ -7,6 +7,7 @@ from app.modules.auth.exceptions import (
     IdentityInUseError,
     LastSignInMethodError,
     OAuthAccountNotLinkedError,
+    PasswordNotSetError,
     ProviderAlreadyLinkedError,
 )
 from app.modules.auth.models import OAuthAccount, OAuthProvider
@@ -163,3 +164,19 @@ class AuthService:
             raise LastSignInMethodError
 
         await self._accounts.delete(account)
+
+    async def remove_password(self, user: User) -> None:
+        """Remove the user's password, unless it's their last way in."""
+
+        # The same lock as unlinking, so the two can't race either.
+        await self._users.lock(user.id)
+
+        credential = await self._credentials.get(user.id)
+
+        if credential is None:
+            raise PasswordNotSetError
+
+        if not await self._accounts.list_for_user(user.id):
+            raise LastSignInMethodError
+
+        await self._credentials.delete(credential)

@@ -77,10 +77,17 @@ class UserSessionRepository:
             delete(UserSession).where(UserSession.token_hash == token_hash)
         )
 
-    async def delete_for_user(self, user_id: uuid.UUID) -> None:
-        await self._db.execute(
-            delete(UserSession).where(UserSession.user_id == user_id)
-        )
+    async def delete_for_user(
+        self, user_id: uuid.UUID, *, keep: uuid.UUID | None = None
+    ) -> None:
+        """Delete the user's sessions, all of them or all but `keep`."""
+
+        statement = delete(UserSession).where(UserSession.user_id == user_id)
+
+        if keep is not None:
+            statement = statement.where(UserSession.id != keep)
+
+        await self._db.execute(statement)
 
 
 class PasswordCredentialRepository:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -98,8 +99,13 @@ class SessionService:
     async def revoke_session(self, token: str) -> None:
         await self._sessions.delete_by_token_hash(hash_secret(token))
 
-    async def revoke_all_sessions(self, user: User) -> None:
-        await self._sessions.delete_for_user(user.id)
+    async def revoke_all_sessions(self, user_id: uuid.UUID) -> None:
+        await self._sessions.delete_for_user(user_id)
+
+    async def revoke_other_sessions(self, user_session: UserSession) -> None:
+        """Sign the user out everywhere but this session."""
+
+        await self._sessions.delete_for_user(user_session.user_id, keep=user_session.id)
 
 
 async def finish_sign_in(

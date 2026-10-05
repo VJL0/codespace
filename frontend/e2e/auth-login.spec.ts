@@ -98,8 +98,9 @@ test("a password confirms it's you before linking", async ({ page }) => {
 
   await page.goto("/settings")
   await githubRow(page).getByRole("button", { name: "Link" }).click()
-  await page.getByLabel("Password").fill(user.password)
-  await page.getByRole("button", { name: "Confirm" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByLabel("Password").fill(user.password)
+  await dialog.getByRole("button", { name: "Confirm" }).click()
 
   await expect(page.getByText("Confirmed.")).toBeVisible()
   await githubRow(page).getByRole("button", { name: "Link" }).click()

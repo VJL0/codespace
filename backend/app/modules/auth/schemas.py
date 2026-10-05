@@ -69,3 +69,15 @@ class PasswordRequest(BaseModel):
 
 class TokenRequest(BaseModel):
     token: str
+
+
+class PasswordTokenRequest(BaseModel):
+    """An emailed link's secret, with the password to set."""
+
+    token: str
+    password: Annotated[str, StringConstraints(max_length=1024)]
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: Annotated[str, StringConstraints(max_length=1024)]
+    new_password: Annotated[str, StringConstraints(max_length=1024)]

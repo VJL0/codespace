@@ -1,5 +1,6 @@
-"""Email-and-password sign-up and sign-in, and the reauthentication a
-password or an emailed link provides."""
+"""Email-and-password sign-up and sign-in, the reauthentication a password
+or an emailed link provides, and managing the password itself: resetting,
+adding, changing and removing it."""
 
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from app.api.errors import api_error
 from app.modules.auth import emails
 from app.modules.auth.audit import audit
 from app.modules.auth.dependencies import (
+    AuthServiceDep,
     AuthSessionToken,
     CurrentSession,
     EmailSenderDep,
@@ -20,9 +22,15 @@ from app.modules.auth.dependencies import (
     HttpClientDep,
     PasswordServiceDep,
     RateLimiterDep,
+    RecentlyAuthenticatedSession,
     SessionServiceDep,
 )
-from app.modules.auth.exceptions import AccountExistsError
+from app.modules.auth.exceptions import (
+    AccountExistsError,
+    LastSignInMethodError,
+    PasswordAlreadySetError,
+    PasswordNotSetError,
+)
 from app.modules.auth.models import EmailTokenPurpose
 from app.modules.auth.passwords import PasswordPolicyError, check_password_policy
 from app.modules.auth.rate_limit import (
@@ -32,13 +40,20 @@ from app.modules.auth.rate_limit import (
     ip_key,
 )
 from app.modules.auth.schemas import (
+    ChangePasswordRequest,
     EmailRequest,
     LoginRequest,
     PasswordRequest,
+    PasswordTokenRequest,
     RegisterCompleteRequest,
     TokenRequest,
 )
-from app.modules.auth.session import finish_sign_in, set_session_cookie
+from app.modules.auth.session import (
+    delete_session_cookie,
+    finish_sign_in,
+    set_session_cookie,
+)
+from app.modules.auth.tokens import EmailTokenRepository
 from app.modules.users.emails import EmailNotValidError, normalize_email
 from app.modules.users.repository import UserEmailRepository
 
@@ -341,3 +356,240 @@ async def complete_email_reauthentication(
     await db.commit()
     set_session_cookie(response, token=new_token)
     audit("auth.reauthenticated", user_id=current_session.user_id, method="email")
+
+
+@router.post("/password/forgot", status_code=202)
+async def forgot_password(
+    body: EmailRequest,
+    request: Request,
+    db: SessionDep,
+    limiter: RateLimiterDep,
+    tokens: EmailTokensDep,
+    passwords: PasswordServiceDep,
+    email_sender: EmailSenderDep,
+    background_tasks: BackgroundTasks,
+) -> None:
+    """Email a reset link to a verified address whose account has a password.
+
+    The response is the same either way, so this doesn't reveal accounts.
+    """
+
+    address = _valid_email(body.email)
+    await _limit(
+        limiter,
+        db,
+        (email_key("reset", address), 3, timedelta(hours=1)),
+        (ip_key("reset", request), 20, timedelta(hours=1)),
+    )
+    audit("auth.password.reset_requested")
+
+    email = await UserEmailRepository(db).get_verified(normalize_email(address))
+
+    if email is None or not await passwords.has_password(email.user_id):
+        return
+
+    # Only the newest link works.
+    await tokens.revoke(EmailTokenPurpose.PASSWORD_RESET, email.user_id)
+    token, secret = tokens.issue(
+        EmailTokenPurpose.PASSWORD_RESET,
+        email=email.email,
+        lifetime=timedelta(minutes=30),
+        user_id=email.user_id,
+    )
+    await db.commit()
+
+    _send(
+        background_tasks,
+        email_sender,
+        to=email.email,
+        message=emails.password_reset(secret),
+        idempotency_key=f"password-reset/{token.id}",
+    )
+
+
+async def _use_password_token(
+    purpose: EmailTokenPurpose,
+    body: PasswordTokenRequest,
+    http_client: HttpClientDep,
+    tokens: EmailTokenRepository,
+) -> uuid.UUID:
+    """Check the new password, then spend the link; return whose it is."""
+
+    # The policy first, so a password it refuses doesn't spend the link.
+    await _check_policy(body.password, http_client)
+
+    token = await tokens.consume(purpose, body.token)
+
+    if token is None or token.user_id is None:
+        raise api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "invalid_token",
+            "This link has expired or was already used. Ask for a new one.",
+        )
+
+    return token.user_id
+
+
+@router.post("/password/reset", status_code=204)
+async def reset_password(
+    body: PasswordTokenRequest,
+    response: Response,
+    db: SessionDep,
+    http_client: HttpClientDep,
+    tokens: EmailTokensDep,
+    passwords: PasswordServiceDep,
+    session_service: SessionServiceDep,
+) -> None:
+    """Replace the password and sign out every session: whoever knew the old
+    password is out. No automatic sign-in; the user signs in with the new
+    one."""
+
+    user_id = await _use_password_token(
+        EmailTokenPurpose.PASSWORD_RESET, body, http_client, tokens
+    )
+
+    await passwords.set_password(user_id, body.password, replace=True)
+    await session_service.revoke_all_sessions(user_id)
+    await db.commit()
+
+    delete_session_cookie(response)
+    audit("auth.password.reset", user_id=user_id)
+
+
+@router.post("/password/setup", status_code=202)
+async def start_password_setup(
+    user_session: RecentlyAuthenticatedSession,
+    db: SessionDep,
+    limiter: RateLimiterDep,
+    tokens: EmailTokensDep,
+    passwords: PasswordServiceDep,
+    email_sender: EmailSenderDep,
+    background_tasks: BackgroundTasks,
+) -> None:
+    """Add a password to an account that signs in with providers only, by a
+    link to its primary email: the password and the email go together, as
+    the email is what signing in with it and resetting it use."""
+
+    if await passwords.has_password(user_session.user_id):
+        raise api_error(
+            status.HTTP_409_CONFLICT, "password_exists", "You already have a password."
+        )
+
+    primary = await UserEmailRepository(db).get_primary(user_session.user_id)
+
+    if primary is None:
+        raise api_error(
+            status.HTTP_409_CONFLICT,
+            "no_email",
+            "A password needs an email address to sign in with.",
+        )
+
+    await _limit(
+        limiter,
+        db,
+        (f"password-setup:user:{user_session.user_id}", 5, timedelta(hours=1)),
+    )
+
+    await tokens.revoke(EmailTokenPurpose.PASSWORD_SETUP, user_session.user_id)
+    token, secret = tokens.issue(
+        EmailTokenPurpose.PASSWORD_SETUP,
+        email=primary.email,
+        lifetime=timedelta(minutes=30),
+        user_id=user_session.user_id,
+    )
+    await db.commit()
+
+    _send(
+        background_tasks,
+        email_sender,
+        to=primary.email,
+        message=emails.password_setup(secret),
+        idempotency_key=f"password-setup/{token.id}",
+    )
+
+
+@router.post("/password/setup/complete", status_code=204)
+async def complete_password_setup(
+    body: PasswordTokenRequest,
+    db: SessionDep,
+    http_client: HttpClientDep,
+    tokens: EmailTokensDep,
+    passwords: PasswordServiceDep,
+) -> None:
+    user_id = await _use_password_token(
+        EmailTokenPurpose.PASSWORD_SETUP, body, http_client, tokens
+    )
+
+    try:
+        await passwords.set_password(user_id, body.password, replace=False)
+    except PasswordAlreadySetError as exc:
+        await db.commit()
+        raise api_error(
+            status.HTTP_409_CONFLICT, "password_exists", "You already have a password."
+        ) from exc
+
+    await db.commit()
+    audit("auth.password.added", user_id=user_id)
+
+
+@router.post("/password/change", status_code=204)
+async def change_password(
+    body: ChangePasswordRequest,
+    response: Response,
+    current_session: CurrentSession,
+    db: SessionDep,
+    http_client: HttpClientDep,
+    limiter: RateLimiterDep,
+    passwords: PasswordServiceDep,
+    session_service: SessionServiceDep,
+) -> None:
+    """Change the password, given the current one; every other session is
+    signed out, and this one renewed."""
+
+    await _limit(
+        limiter,
+        db,
+        (f"reauth:user:{current_session.user_id}", 10, timedelta(minutes=15)),
+    )
+
+    if not await passwords.verify(current_session.user, body.current_password):
+        raise api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            "invalid_credentials",
+            "Your current password is incorrect.",
+        )
+
+    await _check_policy(body.new_password, http_client)
+    await passwords.set_password(
+        current_session.user_id, body.new_password, replace=True
+    )
+    await session_service.revoke_other_sessions(current_session)
+    # Knowing the current password was a fresh authentication.
+    token = session_service.reauthenticate(current_session)
+    await db.commit()
+
+    set_session_cookie(response, token=token)
+    audit("auth.password.changed", user_id=current_session.user_id)
+
+
+@router.delete("/password", status_code=204)
+async def remove_password(
+    user_session: RecentlyAuthenticatedSession,
+    db: SessionDep,
+    auth_service: AuthServiceDep,
+) -> None:
+    try:
+        await auth_service.remove_password(user_session.user)
+    except PasswordNotSetError as exc:
+        raise api_error(
+            status.HTTP_404_NOT_FOUND, "no_password", "You have no password."
+        ) from exc
+    except LastSignInMethodError as exc:
+        raise api_error(
+            status.HTTP_409_CONFLICT,
+            "last_method",
+            "This is your only way to sign in. Link another account first.",
+        ) from exc
+
+    await db.commit()
+    audit("auth.password.removed", user_id=user_session.user_id)
