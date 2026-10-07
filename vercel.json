@@ -10,6 +10,12 @@
       "framework": "vite"
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron/purge-expired",
+      "schedule": "0 4 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",

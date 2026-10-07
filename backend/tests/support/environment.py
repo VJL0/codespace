@@ -28,6 +28,7 @@ def app_environment() -> dict[str, str]:
         "RESEND_API_KEY": "re_test_unused",
         "EMAIL_FROM": "CodeSpace <no-reply@example.com>",
         "RATE_LIMIT_SECRET_KEY": "test-rate-limit-secret",
+        "CRON_SECRET": "test-cron-secret",
         **{
             f"{provider.upper()}_CLIENT_{part}": value
             for provider, (client_id, secret) in PROVIDER_CREDENTIALS.items()

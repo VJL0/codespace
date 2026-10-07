@@ -1,24 +1,29 @@
-"""The rules for signing in, and for adding and removing ways to sign in.
+"""The rules for signing in, for adding and removing ways to sign in, and
+for clearing out what has expired.
 
 Each function works in the caller's transaction; the router commits."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import status
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import api_error
 from app.modules.auth.models import (
+    EmailToken,
     OAuthAccount,
     OAuthProvider,
     PasswordCredential,
+    RateLimitCounter,
+    UserSession,
 )
 from app.modules.auth.passwords import check_password, hash_password
 from app.modules.auth.providers.base import OAuthIdentity
+from app.modules.auth.session import SESSION_IDLE_TIMEOUT
 from app.modules.users.emails import EmailNotValidError
 from app.modules.users.models import User, UserEmail
 from app.modules.users.service import get_primary_email, get_verified_email
@@ -301,3 +306,33 @@ async def _lock_user(db: AsyncSession, user_id: uuid.UUID) -> None:
     # Two concurrent removals could each see another way in left and together
     # remove both; holding the user's row makes the second wait for the first.
     await db.get_one(User, user_id, with_for_update=True)
+
+
+# --- Housekeeping --------------------------------------------------------------
+
+
+async def purge_expired(db: AsyncSession) -> None:
+    """Delete rows that can never be used again: ended sessions, spent or
+    expired links, and rate-limit windows that are over. Safe to repeat."""
+
+    now = datetime.now(UTC)
+
+    await db.execute(
+        delete(UserSession).where(
+            or_(
+                UserSession.expires_at <= now,
+                UserSession.last_seen_at <= now - SESSION_IDLE_TIMEOUT,
+            )
+        )
+    )
+    await db.execute(
+        delete(EmailToken).where(
+            or_(EmailToken.expires_at <= now, EmailToken.consumed_at.is_not(None))
+        )
+    )
+    # No rate-limit window is longer than a day.
+    await db.execute(
+        delete(RateLimitCounter).where(
+            RateLimitCounter.window_start <= now - timedelta(days=1)
+        )
+    )

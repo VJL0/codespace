@@ -144,6 +144,10 @@ IPv6 clients are grouped by /64.
 - The `iss` response parameter is checked when the provider supports it (RFC 9207).
 - The account picker is always shown, so users can switch provider accounts.
 
+### Housekeeping
+
+Once a day, Vercel Cron calls `GET /api/cron/purge-expired` with `Authorization: Bearer $CRON_SECRET`. It deletes what can never be used again: ended sessions, used or expired links, and rate-limit windows that are over. Running it twice does no harm, and a missed day is caught up the next.
+
 ### Audit log
 
 Security events go to the `app.auth.audit` logger with the request ID, e.g. `auth.login.succeeded` or `auth.password.reset`. Secrets are never logged.
@@ -167,6 +171,7 @@ Backend, `backend/app/`:
 | `modules/users/emails.py` | `normalize_email()` |
 | `modules/users/service.py` | Email address lookups |
 | `api/csrf.py` | The CSRF check |
+| `api/cron.py` | Scheduled jobs, such as purging expired rows |
 
 Frontend, `frontend/src/`:
 
@@ -193,4 +198,5 @@ Auth settings in `backend/.env`:
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub sign-in |
 | `OAUTH_SESSION_SECRET_KEY` | Signs the OAuth flow cookie |
 | `RATE_LIMIT_SECRET_KEY` | HMAC key for email rate-limit buckets |
+| `CRON_SECRET` | The bearer token scheduled jobs require; set the same value in the Vercel project |
 | `RESEND_API_KEY`, `EMAIL_FROM` | Sending email in production (other environments log it) |

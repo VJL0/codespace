@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # list of every address someone tried.
     rate_limit_secret_key: str
 
+    # What Vercel Cron sends as `Authorization: Bearer ...` to run scheduled
+    # jobs, and what the app requires of anyone calling them.
+    cron_secret: str
+
     @property
     def is_development(self) -> bool:
         return self.environment == "development"
