@@ -103,8 +103,6 @@ class SessionService:
         await self._sessions.delete_for_user(user_id)
 
     async def revoke_other_sessions(self, user_session: UserSession) -> None:
-        """Sign the user out everywhere but this session."""
-
         await self._sessions.delete_for_user(user_session.user_id, keep=user_session.id)
 
 

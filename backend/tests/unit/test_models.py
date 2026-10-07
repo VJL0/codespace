@@ -17,9 +17,11 @@ from app.modules.users.models import UserEmail
         ("a@münchen.DE", "a@münchen.de"),
         # No provider-specific rules: Gmail's dots and +tags are kept.
         ("a.d.a+tag@gmail.com", "a.d.a+tag@gmail.com"),
+        # Role names (RFC 2142) are lowercased.
+        ("Postmaster@Example.com", "postmaster@example.com"),
     ],
 )
-def test_normalization_lowercases_the_domain_only(
+def test_normalization_lowercases_the_domain(
     address: str, normalized: str
 ) -> None:
     assert normalize_email(address) == normalized

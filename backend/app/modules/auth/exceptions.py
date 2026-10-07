@@ -9,7 +9,7 @@ class OAuthProviderError(Exception):
 
 
 class UnsupportedOAuthProviderError(Exception):
-    """No adapter is registered for this provider."""
+    pass
 
 
 class ReauthUnsupportedError(Exception):
@@ -25,7 +25,7 @@ class ProviderAlreadyLinkedError(Exception):
 
 
 class OAuthAccountNotLinkedError(Exception):
-    """The user has no account with this provider."""
+    pass
 
 
 class LastSignInMethodError(Exception):
@@ -33,8 +33,8 @@ class LastSignInMethodError(Exception):
 
 
 class PasswordNotSetError(Exception):
-    """The user has no password."""
+    pass
 
 
 class PasswordAlreadySetError(Exception):
-    """The user already has a password."""
+    pass

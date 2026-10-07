@@ -51,8 +51,6 @@ class UserEmail(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="CASCADE")
     )
 
-    # 254: RFC 5321 caps a path at 256 octets including the angle brackets.
-    # As given, for display and sending.
     email: Mapped[str] = mapped_column(String(254))
 
     # normalize_email(email), set with it: what lookups and uniqueness use.
@@ -85,7 +83,6 @@ class UserEmail(TimestampMixin, Base):
 
     @validates("email")
     def set_normalized_email(self, key: str, value: str) -> str:
-        # Raises EmailNotValidError for an invalid address.
         self.normalized_email = normalize_email(value)
 
         return value.strip()

@@ -105,8 +105,6 @@ class AuthService:
     async def link_oauth_account(
         self, user: User, oauth_identity: OAuthIdentity
     ) -> None:
-        """Add a provider account to `user`'s sign-in methods."""
-
         account = await self._accounts.get_by_provider_user_id(
             oauth_identity.provider, oauth_identity.provider_user_id
         )
