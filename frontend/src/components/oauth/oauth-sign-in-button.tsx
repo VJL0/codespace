@@ -1,6 +1,5 @@
 import { buttonVariants } from "@/components/ui/button"
 import type { OAuthProviderInfo } from "@/components/oauth/providers"
-import { API_URL } from "@/lib/config"
 import { cn } from "@/lib/utils"
 
 interface OAuthSignInButtonProps {
@@ -14,7 +13,7 @@ export function OAuthSignInButton({
 }: OAuthSignInButtonProps) {
   return (
     <a
-      href={`${API_URL}/api/auth/${provider.id}/login`}
+      href={`/api/auth/${provider.id}/login`}
       className={cn(
         buttonVariants({ variant: "outline", size: "lg" }),
         "gap-3",

@@ -6,9 +6,8 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
-API_HOST = "api.example.test"
-API_URL = f"https://{API_HOST}"
-FRONTEND_URL = "https://app.example.test"
+APP_HOST = "app.example.test"
+APP_URL = f"https://{APP_HOST}"
 
 PROVIDER_CREDENTIALS = {
     "google": ("google-client-id", "google-client-secret"),
@@ -22,9 +21,8 @@ def app_environment() -> dict[str, str]:
 
     return {
         "ENVIRONMENT": "test",
-        "API_URL": API_URL,
-        "FRONTEND_URL": FRONTEND_URL,
-        "ALLOWED_HOSTS": f'["{API_HOST}"]',
+        "APP_URL": APP_URL,
+        "ALLOWED_HOSTS": f'["{APP_HOST}"]',
         "DATABASE_URL": "postgresql+asyncpg://unused.invalid/unused",
         "OAUTH_SESSION_SECRET_KEY": "test-oauth-session-secret",
         **{

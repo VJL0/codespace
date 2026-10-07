@@ -14,7 +14,8 @@ from app.main import app
 from app.modules.auth.dependencies import get_oauth_provider_registry
 from app.modules.auth.models import OAuthProvider
 from app.modules.auth.providers.registry import create_oauth_provider_registry
-from tests.support.environment import API_URL, PROVIDER_CREDENTIALS
+from tests.support.auth_flow import SAME_ORIGIN_HEADERS
+from tests.support.environment import APP_URL, PROVIDER_CREDENTIALS
 from tests.support.fake_oauth import FakeOAuthServer, generate_keys
 
 
@@ -34,7 +35,8 @@ async def client(
     session_factory: async_sessionmaker[AsyncSession], fake_oauth: FakeOAuthServer
 ) -> AsyncIterator[httpx2.AsyncClient]:
     """An HTTP client for the app, with its OAuth clients pointed at
-    `fake_oauth` and its database sessions on the test's transaction.
+    `fake_oauth` and its database sessions on the test's transaction. It
+    sends what the SPA's own requests do, so it passes the CSRF check.
 
     The ASGI transport doesn't run the lifespan; what it would set up is
     overridden here.
@@ -56,7 +58,9 @@ async def client(
 
     try:
         async with httpx2.AsyncClient(
-            transport=httpx2.ASGITransport(app=app), base_url=API_URL
+            transport=httpx2.ASGITransport(app=app),
+            base_url=APP_URL,
+            headers=SAME_ORIGIN_HEADERS,
         ) as client:
             yield client
     finally:

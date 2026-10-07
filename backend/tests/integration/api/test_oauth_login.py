@@ -8,7 +8,7 @@ import httpx2
 import pytest
 
 from tests.support.auth_flow import assert_oauth_failed
-from tests.support.environment import API_URL
+from tests.support.environment import APP_URL
 from tests.support.fake_oauth import FakeOAuthServer
 
 
@@ -39,7 +39,7 @@ async def test_login_redirects_to_provider_with_pkce(
     assert f"{url.scheme}://{url.netloc}{url.path}" == authorize_endpoint
     assert params["response_type"] == "code"
     assert params["client_id"] == f"{provider}-client-id"
-    assert params["redirect_uri"] == f"{API_URL}/api/auth/{provider}/callback"
+    assert params["redirect_uri"] == f"{APP_URL}/api/auth/{provider}/callback"
     assert params["scope"] == scope
     assert params["prompt"] == "select_account"
     assert params["code_challenge_method"] == "S256"

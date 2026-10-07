@@ -13,10 +13,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # App (URLs without trailing slash)
+    # App
     environment: Literal["development", "test", "production"]
-    api_url: str
-    frontend_url: str
+    # The one public origin, without a trailing slash: the SPA at / and the
+    # API at /api are served from it.
+    app_url: str
 
     # HTTP
     allowed_hosts: list[str]

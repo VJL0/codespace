@@ -2,7 +2,7 @@ import { Link, useLoaderData, useNavigate } from "react-router"
 import type { LoaderFunctionArgs } from "react-router"
 
 import { Button, buttonVariants } from "@/components/ui/button"
-import { logout } from "@/lib/api"
+import { logout, logoutEverywhere } from "@/lib/api"
 import { currentUserContext } from "@/lib/current-user-context"
 
 export function loader({ context }: LoaderFunctionArgs) {
@@ -15,6 +15,11 @@ export function Component() {
 
   async function handleLogout() {
     await logout()
+    navigate("/login", { replace: true })
+  }
+
+  async function handleLogoutEverywhere() {
+    await logoutEverywhere()
     navigate("/login", { replace: true })
   }
 
@@ -33,6 +38,9 @@ export function Component() {
         </Link>
         <Button variant="outline" onClick={handleLogout}>
           Log out
+        </Button>
+        <Button variant="outline" onClick={handleLogoutEverywhere}>
+          Log out everywhere
         </Button>
       </div>
     </div>

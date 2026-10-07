@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 
 from app.api.deps import SessionDep
 from app.core.config import settings
+from app.modules.auth.audit import audit
 from app.modules.auth.dependencies import (
     AuthServiceDep,
     AuthSessionToken,
@@ -24,7 +25,7 @@ from app.modules.auth.models import OAuthProvider
 from app.modules.auth.providers.base import OAuthProviderAdapter
 from app.modules.auth.providers.registry import OAuthProviderRegistry
 from app.modules.auth.schemas import CurrentUserRead
-from app.modules.auth.session import delete_session_cookie, set_session_cookie
+from app.modules.auth.session import delete_session_cookie, finish_sign_in
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,22 @@ async def logout(
     return response
 
 
+@router.post("/logout-all", status_code=204)
+async def logout_all(
+    current_user: CurrentUser, db: SessionDep, session_service: SessionServiceDep
+) -> Response:
+    """Sign out every browser, this one included."""
+
+    await session_service.revoke_all_sessions(current_user)
+    await db.commit()
+    audit("auth.sessions.revoked_all", user_id=current_user.id)
+
+    response = Response(status_code=204)
+    delete_session_cookie(response)
+
+    return response
+
+
 def _get_adapter(
     registry: OAuthProviderRegistry, provider: OAuthProvider
 ) -> OAuthProviderAdapter:
@@ -64,13 +81,19 @@ def _get_adapter(
 
 
 def _redirect_uri(provider: OAuthProvider) -> str:
-    return f"{settings.api_url}/api/auth/{provider.value}/callback"
+    return f"{settings.app_url}/api/auth/{provider.value}/callback"
 
 
 def _frontend_redirect(path: str, **params: str) -> RedirectResponse:
     query = f"?{urlencode(params)}" if params else ""
 
-    return RedirectResponse(f"{settings.frontend_url}{path}{query}", status_code=303)
+    return RedirectResponse(f"{settings.app_url}{path}{query}", status_code=303)
+
+
+def _failed_sign_in(provider: OAuthProvider, error: str) -> RedirectResponse:
+    audit("auth.login.failed", provider=provider.value, reason=error)
+
+    return _frontend_redirect("/login", error=error)
 
 
 @router.get("/{provider}/login")
@@ -102,23 +125,20 @@ async def handle_oauth_callback(
         identity = await adapter.resolve_identity(request)
     except OAuthProviderError as exc:
         logger.warning("OAuth callback failed for %s: %s", provider.value, exc)
-        return _frontend_redirect("/login", error="oauth_failed")
+        return _failed_sign_in(provider, "oauth_failed")
 
     if not identity.email_verified:
-        return _frontend_redirect("/login", error="email_unverified")
+        return _failed_sign_in(provider, "email_unverified")
 
     try:
         user = await auth_service.sign_in_with_oauth(identity)
     except AccountExistsError:
-        return _frontend_redirect("/login", error="account_exists")
-
-    if session_token is not None:
-        await session_service.revoke_session(session_token)
-
-    new_session_token = session_service.create_session(user=user)
-    await db.commit()
+        return _failed_sign_in(provider, "account_exists")
 
     response = _frontend_redirect("/")
-    set_session_cookie(response, token=new_session_token)
+    await finish_sign_in(
+        db, session_service, response, user=user, previous_token=session_token
+    )
+    audit("auth.login.succeeded", user_id=user.id, provider=provider.value)
 
     return response

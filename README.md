@@ -123,7 +123,7 @@ uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
-The API will be available at `http://localhost:8000`.
+uvicorn listens on `http://localhost:8000`, but use the app through Vite below.
 
 ### 3. Run the frontend
 
@@ -133,7 +133,22 @@ pnpm install
 pnpm dev
 ```
 
-The app will be available at `http://localhost:5173`.
+The app will be available at `http://localhost:5173`. Vite proxies `/api` to
+the backend, so the SPA and API share one origin, as they do in production.
+
+### Same-origin deployment
+
+The SPA and API are always served from one origin: the SPA at `/` and FastAPI
+at `/api/*`, routed by the edge or reverse proxy. The API sends no CORS
+headers, and its CSRF check refuses state-changing requests that don't come
+from that origin. `APP_URL` in `backend/.env` is that origin.
+
+Each provider's OAuth app must list `{APP_URL}/api/auth/{provider}/callback`
+as a redirect URI (locally `http://localhost:5173/api/auth/google/callback`,
+and the same for `microsoft` and `github`).
+
+Behind a proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy
+IPs>` so the app sees the client's address rather than the proxy's.
 
 ## What I'm Working On
 

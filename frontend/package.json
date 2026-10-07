@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",

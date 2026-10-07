@@ -29,7 +29,7 @@ from tests.support.auth_flow import (
     sign_in,
 )
 from tests.support.database import count_rows
-from tests.support.environment import FRONTEND_URL
+from tests.support.environment import APP_URL
 from tests.support.fake_oauth import (
     MICROSOFT_ORG_KEY,
     MICROSOFT_ORG_TENANT,
@@ -83,7 +83,7 @@ async def test_sign_in_creates_user_account_and_session(
     response = await sign_in(client, fake_oauth, provider, **approval(provider))
 
     assert frontend_error(response) is None
-    assert response.headers["location"] == f"{FRONTEND_URL}/"
+    assert response.headers["location"] == f"{APP_URL}/"
 
     me = await client.get("/api/auth/me")
     assert me.status_code == 200
