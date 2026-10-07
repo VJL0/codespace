@@ -15,7 +15,7 @@ from tests.support.fake_oauth import MICROSOFT_ORG_TENANT, FakeOAuthServer
 SESSION_COOKIE = "__Host-Http-session"
 
 # What a browser sends with the SPA's same-origin fetch() calls.
-SAME_ORIGIN_HEADERS = {"x-csrf-protection": "1", "sec-fetch-site": "same-origin"}
+SAME_ORIGIN_HEADERS = {"sec-fetch-site": "same-origin"}
 
 GOOGLE_CLAIMS = {
     "sub": "110169484474386276334",

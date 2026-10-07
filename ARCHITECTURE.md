@@ -45,7 +45,7 @@ Database migrations are in `backend/migrations/` (Alembic).
 ## Rules that always hold
 
 - **One origin.** The API sends no CORS headers.
-- **Every state-changing `/api` request passes the CSRF check.** The SPA's `apiFetch()` sends the header it needs.
+- **Every state-changing `/api` request passes the CSRF check.** The browser's `Sec-Fetch-Site` (or `Origin`) must name this origin.
 - **API errors the SPA acts on are `{"detail": {"code", "message"}}`.** Build them with `api_error()`.
 
 ## Cross-cutting concerns

@@ -47,8 +47,8 @@ test("a cross-site page can't sign the user out", async ({ page }) => {
   const identity = newIdentity("google")
   await signIn(page, identity)
 
-  // Another site posts to the API: a cross-site request, without the app's
-  // CSRF header. 127.0.0.1 is a different site from localhost; it's a real
+  // Another site posts to the API, which the browser marks Sec-Fetch-Site:
+  // cross-site. 127.0.0.1 is a different site from localhost; it's a real
   // local page because Chrome blocks routed or public pages from reaching
   // local servers at all.
   await page.goto("http://127.0.0.1:5174/")

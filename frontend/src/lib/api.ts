@@ -20,8 +20,8 @@ export class ApiError extends Error {
 }
 
 // fetch() for the API, which shares the SPA's origin, so cookies go along
-// by default. The custom header is what the API's CSRF check requires on
-// state-changing requests; a cross-site page can't send it.
+// by default, and the browser's Sec-Fetch-Site header passes the API's CSRF
+// check.
 export async function apiFetch(
   path: string,
   { json, headers, ...init }: RequestInit & { json?: unknown } = {}
@@ -29,7 +29,6 @@ export async function apiFetch(
   const response = await fetch(path, {
     ...init,
     headers: {
-      "X-CSRF-Protection": "1",
       ...(json === undefined ? {} : { "Content-Type": "application/json" }),
       ...headers,
     },
