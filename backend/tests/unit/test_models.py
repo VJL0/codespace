@@ -5,29 +5,50 @@ from __future__ import annotations
 import pytest
 
 from app.modules.auth.models import OAuthAccount
-from app.modules.users.models import User
-
-
-def test_user_email_is_trimmed_and_lowercased() -> None:
-    assert User(email="  Ada@Example.COM ").email == "ada@example.com"
-
-
-@pytest.mark.parametrize("email", ["", "   "], ids=["empty", "blank"])
-def test_user_email_cannot_be_empty(email: str) -> None:
-    with pytest.raises(ValueError, match="Email cannot be empty"):
-        User(email=email)
+from app.modules.users.emails import EmailNotValidError, normalize_email
+from app.modules.users.models import UserEmail
 
 
 @pytest.mark.parametrize(
-    ("provider_email", "stored"),
+    ("address", "normalized"),
     [
-        ("  Ada@Example.COM ", "ada@example.com"),
-        ("   ", None),
-        (None, None),
+        ("  Ada@Example.COM ", "Ada@example.com"),
+        ("grace@contoso.com", "grace@contoso.com"),
+        ("a@münchen.DE", "a@münchen.de"),
+        # No provider-specific rules: Gmail's dots and +tags are kept.
+        ("a.d.a+tag@gmail.com", "a.d.a+tag@gmail.com"),
     ],
-    ids=["normalized", "blank", "missing"],
 )
-def test_provider_email_is_normalized_or_none(
-    provider_email: str | None, stored: str | None
+def test_normalization_lowercases_the_domain_only(
+    address: str, normalized: str
 ) -> None:
-    assert OAuthAccount(provider_email=provider_email).provider_email == stored
+    assert normalize_email(address) == normalized
+
+
+@pytest.mark.parametrize("address", ["", "   ", "not-an-email", "a@localhost"])
+def test_invalid_address_is_rejected(address: str) -> None:
+    with pytest.raises(EmailNotValidError):
+        normalize_email(address)
+
+
+def test_user_email_keeps_the_address_and_its_normalized_key() -> None:
+    email = UserEmail(email="  Ada@Example.COM ")
+
+    assert email.email == "Ada@Example.COM"
+    assert email.normalized_email == "Ada@example.com"
+
+
+def test_user_email_cannot_be_invalid() -> None:
+    with pytest.raises(EmailNotValidError):
+        UserEmail(email="not-an-email")
+
+
+@pytest.mark.parametrize(
+    ("reported", "stored"),
+    [("  Ada@Example.COM ", "Ada@Example.COM"), ("   ", None), (None, None)],
+    ids=["stripped", "blank", "missing"],
+)
+def test_email_snapshot_is_stripped_or_none(
+    reported: str | None, stored: str | None
+) -> None:
+    assert OAuthAccount(email_snapshot=reported).email_snapshot == stored

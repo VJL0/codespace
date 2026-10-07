@@ -9,6 +9,7 @@ writes, commits included.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -24,7 +25,7 @@ from sqlalchemy.pool import NullPool
 from testcontainers.community.postgres import PostgresContainer
 
 from app.core.config import settings
-from app.modules.users.models import User
+from app.modules.users.models import User, UserEmail
 from tests.support.database import MakeUser, alembic_config
 
 
@@ -88,11 +89,25 @@ async def db(
 
 @pytest.fixture
 def make_user(db: AsyncSession) -> MakeUser:
-    """Insert a user, flushed so it has an id: `await make_user(email=...)`."""
+    """Insert a user, flushed so it has an id: `await make_user(email=...)`.
 
-    async def make(email: str = "ada@example.com", **fields: Any) -> User:
-        user = User(email=email, **fields)
+    `email` becomes their verified primary address; None gives them none.
+    """
+
+    async def make(email: str | None = "ada@example.com", **fields: Any) -> User:
+        user = User(**fields)
         db.add(user)
+
+        if email is not None:
+            db.add(
+                UserEmail(
+                    user=user,
+                    email=email,
+                    verified_at=datetime.now(UTC),
+                    is_primary=True,
+                )
+            )
+
         await db.flush()
 
         return user

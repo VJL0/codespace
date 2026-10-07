@@ -55,8 +55,10 @@ class GitHubOAuthAdapter(OAuthProviderAdapter):
         # The numeric `id` is durable; `login` can be renamed and reassigned.
         github_user_id = profile.get("id")
 
-        if github_user_id is None or primary_email is None:
-            raise OAuthProviderError("GitHub returned no user ID or primary email.")
+        if github_user_id is None:
+            raise OAuthProviderError("GitHub returned no user ID.")
+
+        primary_email = primary_email or {}
 
         return OAuthIdentity(
             provider=self.provider,

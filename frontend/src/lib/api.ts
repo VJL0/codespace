@@ -2,7 +2,8 @@ export type OAuthProvider = "google" | "microsoft" | "github"
 
 export interface CurrentUser {
   name: string | null
-  email: string
+  // Null when no provider vouched for an address.
+  email: string | null
   avatar_url: string | null
 }
 
