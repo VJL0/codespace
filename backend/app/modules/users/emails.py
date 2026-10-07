@@ -4,12 +4,11 @@ __all__ = ["EmailNotValidError", "normalize_email"]
 
 
 def normalize_email(address: str) -> str:
-    """The comparison key for an email address; raises EmailNotValidError.
+    """The key for email lookups and uniqueness; raises EmailNotValidError.
 
-    The one canonical form used for every lookup and uniqueness check. It
-    applies Unicode and IDNA normalization and lowercases the domain, but
-    keeps the local part's case, which only the receiving server may
-    interpret, and applies no provider-specific rules such as Gmail's dots.
+    Lowercases the domain and normalizes Unicode. Keeps the local part's
+    case, except role names like postmaster@. Strips whitespace, which
+    the library rejects. Skips DNS: the emailed link proves the address.
     """
 
     return validate_email(address.strip(), check_deliverability=False).normalized
