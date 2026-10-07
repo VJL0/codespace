@@ -4,9 +4,12 @@ import uuid
 from typing import Any
 
 from app.core.config import settings
-from app.modules.auth.exceptions import OAuthProviderError
 from app.modules.auth.models import OAuthProvider
-from app.modules.auth.providers.base import OAuthIdentity, OAuthProviderAdapter
+from app.modules.auth.providers.base import (
+    OAuthIdentity,
+    OAuthProviderAdapter,
+    OAuthProviderError,
+)
 
 
 def _is_guid(value: Any) -> bool:
@@ -30,11 +33,8 @@ class MicrosoftOAuthAdapter(OAuthProviderAdapter):
             },
         }
 
-    def id_token_claims_options(self) -> dict[str, Any]:
-        return {
-            "iss": {"essential": True, "validate": self._issuer_is_trusted},
-            "tid": {"essential": True, "validate": lambda _, tid: _is_guid(tid)},
-        }
+    def id_token_claims_options(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        return {"iss": {"essential": True, "validate": self._issuer_is_trusted}}
 
     def _issuer_is_trusted(self, claims: Any, issuer: str) -> bool:
         """Multitenant issuer validation, as Microsoft specifies it.
@@ -67,12 +67,6 @@ class MicrosoftOAuthAdapter(OAuthProviderAdapter):
 
         return issuer == expected and key_issuer == expected
 
-    def forced_reauth_params(self) -> dict[str, str]:
-        # prompt=login makes Microsoft ask for credentials, ignoring SSO. Its
-        # ID tokens only carry `auth_time` as an optional claim, which the
-        # app registration must request; without it, reauthentication fails.
-        return {"prompt": "login"}
-
     async def fetch_identity(self, token: dict[str, Any]) -> OAuthIdentity:
         claims = token.get("userinfo")
 
@@ -91,8 +85,8 @@ class MicrosoftOAuthAdapter(OAuthProviderAdapter):
             provider=self.provider,
             provider_user_id=f"{object_id}.{claims['tid']}",
             email=claims.get("email"),
-            # Microsoft has no `email_verified`; `xms_edov` is its equivalent.
+            # Microsoft has no `email_verified`; `xms_edov` is its equivalent,
+            # an optional claim the app registration must request.
             email_verified=claims.get("xms_edov", False),
             full_name=claims.get("name"),
-            auth_time=claims.get("auth_time"),
         )

@@ -7,7 +7,10 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx2
 import pytest
+from sqlalchemy import func, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.auth.models import UserSession
 from tests.support.email import OutboxEmailSender
 from tests.support.environment import APP_HOST, APP_URL
 from tests.support.fake_oauth import MICROSOFT_ORG_TENANT, FakeOAuthServer
@@ -78,26 +81,23 @@ async def sign_in(
     )
 
 
-async def start_flow(
-    client: httpx2.AsyncClient, provider: str, purpose: str
-) -> httpx2.Response:
-    """POST /api/auth/{provider}/{purpose}: start a link or reauthentication,
-    which answers with the provider URL to send the browser to."""
+async def start_link(client: httpx2.AsyncClient, provider: str) -> httpx2.Response:
+    """POST /api/auth/{provider}/link, which answers with the provider URL to
+    send the browser to."""
 
-    return await client.post(f"/api/auth/{provider}/{purpose}")
+    return await client.post(f"/api/auth/{provider}/link")
 
 
-async def complete_flow(
+async def link(
     client: httpx2.AsyncClient,
     fake_oauth: FakeOAuthServer,
     provider: str,
-    purpose: str,
     **provider_response: Any,
 ) -> httpx2.Response:
-    """Start a link or reauthentication, approve it at the provider and
-    return the callback's response."""
+    """Start a link, approve it at the provider and return the callback's
+    response."""
 
-    start = await start_flow(client, provider, purpose)
+    start = await start_link(client, provider)
     assert start.status_code == 200, start.text
 
     return await client.get(
@@ -106,12 +106,13 @@ async def complete_flow(
 
 
 PASSWORD = "a perfectly fine passphrase"
+EMAIL = "grace@example.com"
 
 
 async def sign_up(
     client: httpx2.AsyncClient,
     outbox: OutboxEmailSender,
-    email: str = "grace@example.com",
+    email: str = EMAIL,
     *,
     name: str = "Grace Hopper",
     password: str = PASSWORD,
@@ -129,6 +130,33 @@ async def sign_up(
             "password": password,
         },
     )
+
+
+async def login(
+    client: httpx2.AsyncClient, email: str = EMAIL, password: str = PASSWORD
+) -> httpx2.Response:
+    return await client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+
+
+async def sign_in_methods(client: httpx2.AsyncClient) -> dict[str, Any]:
+    response = await client.get("/api/auth/methods")
+    assert response.status_code == 200, response.text
+
+    return response.json()
+
+
+async def set_recently_authenticated(db: AsyncSession, recent: bool = True) -> None:
+    """As if every session had just reauthenticated, or never had."""
+
+    await db.execute(
+        update(UserSession).values(authenticated_at=func.now() if recent else None)
+    )
+
+
+def error_code(response: httpx2.Response) -> str:
+    return response.json()["detail"]["code"]
 
 
 def set_session_token(client: httpx2.AsyncClient, token: str) -> None:

@@ -7,6 +7,11 @@ from pydantic import BaseModel, StringConstraints
 
 from app.modules.auth.models import OAuthProvider
 
+EmailAddress = Annotated[str, StringConstraints(max_length=254)]
+# Bounded here only against abuse; the policy's limit is checked after
+# normalization.
+Password = Annotated[str, StringConstraints(max_length=1024)]
+
 
 class CurrentUserRead(BaseModel):
     name: str | None
@@ -38,33 +43,20 @@ class SignInMethodsRead(BaseModel):
     has_password: bool
     identities: list[IdentityRead]
     emails: list[EmailRead]
-    # Linked providers that can confirm it's the user by making them enter
-    # their credentials again.
-    reauthentication_providers: list[OAuthProvider]
     recently_authenticated: bool
 
 
 class EmailRequest(BaseModel):
-    email: Annotated[str, StringConstraints(max_length=254)]
-
-
-class RegisterCompleteRequest(BaseModel):
-    token: str
-    name: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
-    ]
-    # Bounded here only against abuse; the policy's limit is checked after
-    # normalization.
-    password: Annotated[str, StringConstraints(max_length=1024)]
+    email: EmailAddress
 
 
 class LoginRequest(BaseModel):
-    email: Annotated[str, StringConstraints(max_length=254)]
-    password: Annotated[str, StringConstraints(max_length=1024)]
+    email: EmailAddress
+    password: Password
 
 
 class PasswordRequest(BaseModel):
-    password: Annotated[str, StringConstraints(max_length=1024)]
+    password: Password
 
 
 class TokenRequest(BaseModel):
@@ -75,9 +67,17 @@ class PasswordTokenRequest(BaseModel):
     """An emailed link's secret, with the password to set."""
 
     token: str
-    password: Annotated[str, StringConstraints(max_length=1024)]
+    password: Password
+
+
+class RegisterCompleteRequest(BaseModel):
+    token: str
+    name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+    ]
+    password: Password
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: Annotated[str, StringConstraints(max_length=1024)]
-    new_password: Annotated[str, StringConstraints(max_length=1024)]
+    current_password: Password
+    new_password: Password

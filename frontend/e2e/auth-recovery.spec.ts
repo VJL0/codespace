@@ -1,7 +1,7 @@
 import type { Browser, Page } from "@playwright/test"
 
 import {
-  answerProvidersWith,
+  confirmByEmail,
   expect,
   latestEmailLink,
   newIdentity,
@@ -87,18 +87,16 @@ test("changing the password signs out other browsers", async ({
 test("a Google user adds a password and signs in with it", async ({ page }) => {
   const google = newIdentity("google")
   await signIn(page, google)
-  await answerProvidersWith(page.context(), { google: google.response })
   await page.goto("/settings")
 
   await page.getByRole("button", { name: "Add a password" }).click()
-  await page.getByRole("button", { name: "Continue with Google" }).click()
-  await expect(page.getByText("Confirmed.")).toBeVisible()
+  await confirmByEmail(page, google.email)
   await page.getByRole("button", { name: "Add a password" }).click()
   await expect(
     page.getByText(`We sent a link to ${google.email}`)
   ).toBeVisible()
 
-  await page.goto(await latestEmailLink(page, google.email))
+  await page.goto(await latestEmailLink(page, google.email, "/password-setup"))
   await page.getByLabel("New password").fill(NEW_PASSWORD)
   await page.getByRole("button", { name: "Add password" }).click()
   await expect(page.getByText("Password added.")).toBeVisible()

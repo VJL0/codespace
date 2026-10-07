@@ -36,8 +36,7 @@ A module uses these layers, split into more files where it helps (e.g. `auth/pas
 | File | Job |
 | --- | --- |
 | `router.py` | HTTP only: parse the request, call a service, shape the response. |
-| `service.py` | The rules. |
-| `repository.py` | Database queries. |
+| `service.py` | The rules and their queries: plain functions that take the database session. |
 | `models.py` | Tables. |
 
 Database migrations are in `backend/migrations/` (Alembic).
@@ -52,7 +51,7 @@ Database migrations are in `backend/migrations/` (Alembic).
 
 ### Authentication
 
-Users sign in with email and password, or with Google, Microsoft or GitHub. Sessions are server-side, in an `HttpOnly` cookie. Changing sign-in methods needs a recent sign-in.
+Users sign in with email and password, or with Google, Microsoft or GitHub. Sessions are server-side, in an `HttpOnly` cookie. Changing sign-in methods needs a fresh confirmation: the password, or an emailed link.
 
 The code is in `backend/app/modules/auth/`. Full details are in [docs/auth.md](docs/auth.md).
 

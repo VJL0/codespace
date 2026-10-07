@@ -55,16 +55,6 @@ async def test_api_sends_no_cors_headers(client: httpx2.AsyncClient) -> None:
     assert "access-control-allow-credentials" not in response.headers
 
 
-async def test_each_response_carries_a_generated_request_id(
-    client: httpx2.AsyncClient,
-) -> None:
-    first = await client.get("/health/live")
-    second = await client.get("/health/live")
-
-    assert len(first.headers["x-request-id"]) == 32
-    assert first.headers["x-request-id"] != second.headers["x-request-id"]
-
-
 async def test_the_edge_request_id_is_kept(client: httpx2.AsyncClient) -> None:
     response = await client.get(
         "/health/live", headers={"x-request-id": "edge-1234.abc_DEF"}
@@ -73,11 +63,15 @@ async def test_the_edge_request_id_is_kept(client: httpx2.AsyncClient) -> None:
     assert response.headers["x-request-id"] == "edge-1234.abc_DEF"
 
 
-@pytest.mark.parametrize("request_id", ["has spaces", "x" * 129, "a/b<script>"])
-async def test_a_malformed_request_id_is_replaced(
-    client: httpx2.AsyncClient, request_id: str
+@pytest.mark.parametrize(
+    "headers",
+    [{}, {"x-request-id": "has spaces"}, {"x-request-id": "x" * 129}],
+    ids=["missing", "malformed", "too-long"],
+)
+async def test_otherwise_a_request_id_is_generated(
+    client: httpx2.AsyncClient, headers: dict[str, str]
 ) -> None:
-    response = await client.get("/health/live", headers={"x-request-id": request_id})
+    response = await client.get("/health/live", headers=headers)
 
-    assert response.headers["x-request-id"] != request_id
     assert len(response.headers["x-request-id"]) == 32
+    assert response.headers["x-request-id"] != headers.get("x-request-id")

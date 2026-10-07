@@ -1,46 +1,30 @@
+"""Sessions, the signed-in user and their sign-in methods, and signing in
+with or linking a Google, Microsoft or GitHub account."""
+
 from __future__ import annotations
 
 import logging
+import uuid
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import SessionDep
+from app.api.deps import OAuthProvidersDep, SessionDep
 from app.api.errors import api_error
 from app.core.config import settings
+from app.modules.auth import service
 from app.modules.auth.audit import audit
 from app.modules.auth.dependencies import (
-    AuthServiceDep,
-    AuthSessionToken,
     CurrentSession,
     CurrentUser,
-    OAuthProviderRegistryDep,
     OptionalSession,
     RecentlyAuthenticatedSession,
-    SessionServiceDep,
-)
-from app.modules.auth.exceptions import (
-    AccountExistsError,
-    IdentityInUseError,
-    LastSignInMethodError,
-    OAuthAccountNotLinkedError,
-    OAuthProviderError,
-    ProviderAlreadyLinkedError,
-    UnsupportedOAuthProviderError,
+    SessionToken,
 )
 from app.modules.auth.models import OAuthProvider, UserSession
-from app.modules.auth.providers.base import (
-    OAuthIdentity,
-    OAuthProviderAdapter,
-    OAuthPurpose,
-    OAuthTransaction,
-)
-from app.modules.auth.providers.registry import OAuthProviderRegistry
-from app.modules.auth.repository import (
-    OAuthAccountRepository,
-    PasswordCredentialRepository,
-)
+from app.modules.auth.providers.base import OAuthIdentity, OAuthProviderError
 from app.modules.auth.schemas import (
     AuthorizationRead,
     CurrentUserRead,
@@ -48,15 +32,14 @@ from app.modules.auth.schemas import (
     IdentityRead,
     SignInMethodsRead,
 )
-from app.modules.auth.service import AuthService
 from app.modules.auth.session import (
-    SessionService,
     delete_session_cookie,
-    finish_sign_in,
     is_recently_authenticated,
-    set_session_cookie,
+    revoke_session,
+    revoke_sessions,
+    start_session,
 )
-from app.modules.users.repository import UserEmailRepository
+from app.modules.users.service import get_primary_email, list_emails
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +48,7 @@ router = APIRouter()
 
 @router.get("/me")
 async def get_me(current_user: CurrentUser, db: SessionDep) -> CurrentUserRead:
-    primary_email = await UserEmailRepository(db).get_primary(current_user.id)
+    primary_email = await get_primary_email(db, current_user.id)
 
     return CurrentUserRead(
         name=current_user.full_name,
@@ -76,53 +59,42 @@ async def get_me(current_user: CurrentUser, db: SessionDep) -> CurrentUserRead:
 
 @router.post("/logout", status_code=204)
 async def logout(
-    db: SessionDep,
-    session_service: SessionServiceDep,
-    session_token: AuthSessionToken = None,
-) -> Response:
+    response: Response, db: SessionDep, session_token: SessionToken = None
+) -> None:
     if session_token is not None:
-        await session_service.revoke_session(session_token)
+        await revoke_session(db, session_token)
         await db.commit()
 
-    response = Response(status_code=204)
     delete_session_cookie(response)
-
-    return response
 
 
 @router.post("/logout-all", status_code=204)
 async def logout_all(
-    current_user: CurrentUser, db: SessionDep, session_service: SessionServiceDep
-) -> Response:
+    response: Response, current_user: CurrentUser, db: SessionDep
+) -> None:
     """Sign out every browser, this one included."""
 
-    await session_service.revoke_all_sessions(current_user.id)
+    await revoke_sessions(db, current_user.id)
     await db.commit()
-    audit("auth.sessions.revoked_all", user_id=current_user.id)
-
-    response = Response(status_code=204)
     delete_session_cookie(response)
-
-    return response
+    audit("auth.sessions.revoked_all", user_id=current_user.id)
 
 
 @router.get("/methods")
 async def get_sign_in_methods(
-    current_session: CurrentSession, db: SessionDep, registry: OAuthProviderRegistryDep
+    current_session: CurrentSession, db: SessionDep
 ) -> SignInMethodsRead:
     user_id = current_session.user_id
-    accounts = await OAuthAccountRepository(db).list_for_user(user_id)
-    emails = await UserEmailRepository(db).list_for_user(user_id)
 
     return SignInMethodsRead(
-        has_password=await PasswordCredentialRepository(db).get(user_id) is not None,
+        has_password=await service.has_password(db, user_id),
         identities=[
             IdentityRead(
                 provider=account.provider,
                 email_snapshot=account.email_snapshot,
                 created_at=account.created_at,
             )
-            for account in accounts
+            for account in await service.list_oauth_accounts(db, user_id)
         ],
         emails=[
             EmailRead(
@@ -130,12 +102,7 @@ async def get_sign_in_methods(
                 is_primary=email.is_primary,
                 verified=email.verified_at is not None,
             )
-            for email in emails
-        ],
-        reauthentication_providers=[
-            account.provider
-            for account in accounts
-            if registry.get(account.provider).forced_reauth_params() is not None
+            for email in await list_emails(db, user_id)
         ],
         recently_authenticated=is_recently_authenticated(current_session),
     )
@@ -146,36 +113,13 @@ async def unlink_oauth_account(
     provider: OAuthProvider,
     user_session: RecentlyAuthenticatedSession,
     db: SessionDep,
-    auth_service: AuthServiceDep,
-) -> Response:
-    try:
-        await auth_service.unlink_oauth_account(user_session.user, provider)
-    except OAuthAccountNotLinkedError as exc:
-        raise api_error(
-            status.HTTP_404_NOT_FOUND, "not_linked", "That account isn't linked."
-        ) from exc
-    except LastSignInMethodError as exc:
-        raise api_error(
-            status.HTTP_409_CONFLICT,
-            "last_method",
-            "This is your only way to sign in. Add another one first.",
-        ) from exc
-
+) -> None:
+    await service.unlink_oauth_account(db, user_session.user_id, provider)
     await db.commit()
     audit("auth.oauth.unlinked", user_id=user_session.user_id, provider=provider.value)
 
-    return Response(status_code=204)
 
-
-def _get_adapter(
-    registry: OAuthProviderRegistry, provider: OAuthProvider
-) -> OAuthProviderAdapter:
-    try:
-        return registry.get(provider)
-    except UnsupportedOAuthProviderError as exc:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, "Unknown sign-in provider."
-        ) from exc
+# --- Provider flows ------------------------------------------------------------
 
 
 def _redirect_uri(provider: OAuthProvider) -> str:
@@ -188,19 +132,16 @@ def _frontend_redirect(path: str, **params: str) -> RedirectResponse:
     return RedirectResponse(f"{settings.app_url}{path}{query}", status_code=303)
 
 
-# Where each kind of flow returns the browser, and what its failure is called
-# in the audit log.
-_FLOW_PAGES = {
-    OAuthPurpose.LOGIN: ("/login", "auth.login.failed"),
-    OAuthPurpose.LINK: ("/settings", "auth.oauth.link_failed"),
-    OAuthPurpose.REAUTHENTICATE: ("/settings", "auth.reauthentication.failed"),
-}
-
-
 def _failed_flow(
-    provider: OAuthProvider, purpose: OAuthPurpose, error: str
+    provider: OAuthProvider, error: str, *, linking: bool
 ) -> RedirectResponse:
-    page, event = _FLOW_PAGES[purpose]
+    """Back to the page the flow started from, with `error` for it to show."""
+
+    page, event = (
+        ("/settings", "auth.oauth.link_failed")
+        if linking
+        else ("/login", "auth.login.failed")
+    )
     audit(event, provider=provider.value, reason=error)
 
     return _frontend_redirect(page, error=error)
@@ -208,32 +149,39 @@ def _failed_flow(
 
 @router.get("/{provider}/login")
 async def start_oauth_login(
-    provider: OAuthProvider, request: Request, registry: OAuthProviderRegistryDep
+    provider: OAuthProvider, request: Request, providers: OAuthProvidersDep
 ) -> RedirectResponse:
-    adapter = _get_adapter(registry, provider)
-
     try:
-        return await adapter.start_authorization(request, _redirect_uri(provider))
+        url = await providers[provider].authorization_url(
+            request, _redirect_uri(provider)
+        )
     except OAuthProviderError as exc:
         logger.warning("OAuth start failed for %s: %s", provider.value, exc)
         return _frontend_redirect("/login", error="oauth_failed")
 
+    return RedirectResponse(url, status_code=302)
 
-async def _authorization(
-    adapter: OAuthProviderAdapter,
+
+@router.post("/{provider}/link")
+async def start_oauth_link(
+    provider: OAuthProvider,
     request: Request,
-    purpose: OAuthPurpose,
-    user_session: UserSession,
+    user_session: RecentlyAuthenticatedSession,
+    db: SessionDep,
+    providers: OAuthProvidersDep,
 ) -> AuthorizationRead:
+    """Start linking a provider account; the SPA sends the browser to the
+    returned URL. Requires a recent fresh authentication, so a stolen or
+    unattended session can't attach someone else's account."""
+
+    await service.ensure_provider_unlinked(db, user_session.user_id, provider)
+
     try:
-        url = await adapter.authorization_url(
-            request,
-            _redirect_uri(adapter.provider),
-            purpose=purpose,
-            user_id=user_session.user_id,
+        url = await providers[provider].authorization_url(
+            request, _redirect_uri(provider), link_user_id=user_session.user_id
         )
     except OAuthProviderError as exc:
-        logger.warning("OAuth start failed for %s: %s", adapter.provider.value, exc)
+        logger.warning("OAuth start failed for %s: %s", provider.value, exc)
         raise api_error(
             status.HTTP_502_BAD_GATEWAY,
             "oauth_failed",
@@ -243,117 +191,38 @@ async def _authorization(
     return AuthorizationRead(authorization_url=url)
 
 
-@router.post("/{provider}/link")
-async def start_oauth_link(
-    provider: OAuthProvider,
-    request: Request,
-    user_session: RecentlyAuthenticatedSession,
-    db: SessionDep,
-    registry: OAuthProviderRegistryDep,
-) -> AuthorizationRead:
-    """Start linking a provider account; the SPA sends the browser to the
-    returned URL. Requires a recent fresh authentication, so a stolen or
-    unattended session can't attach someone else's account."""
-
-    adapter = _get_adapter(registry, provider)
-
-    if await OAuthAccountRepository(db).get_for_user(user_session.user_id, provider):
-        raise api_error(
-            status.HTTP_409_CONFLICT,
-            "provider_already_linked",
-            "You already have an account with this provider linked.",
-        )
-
-    return await _authorization(adapter, request, OAuthPurpose.LINK, user_session)
-
-
-@router.post("/{provider}/reauthenticate")
-async def start_oauth_reauthentication(
-    provider: OAuthProvider,
-    request: Request,
-    user_session: CurrentSession,
-    db: SessionDep,
-    registry: OAuthProviderRegistryDep,
-) -> AuthorizationRead:
-    """Start confirming it's the user, with a provider that will make them
-    enter their credentials again."""
-
-    adapter = _get_adapter(registry, provider)
-
-    if adapter.forced_reauth_params() is None:
-        raise api_error(
-            status.HTTP_400_BAD_REQUEST,
-            "reauth_unsupported",
-            "This provider can't confirm it's you.",
-        )
-
-    if not await OAuthAccountRepository(db).get_for_user(
-        user_session.user_id, provider
-    ):
-        raise api_error(
-            status.HTTP_409_CONFLICT, "not_linked", "That account isn't linked."
-        )
-
-    return await _authorization(
-        adapter, request, OAuthPurpose.REAUTHENTICATE, user_session
-    )
-
-
 @router.get("/{provider}/callback")
 async def handle_oauth_callback(
     provider: OAuthProvider,
     request: Request,
     db: SessionDep,
-    registry: OAuthProviderRegistryDep,
-    auth_service: AuthServiceDep,
-    session_service: SessionServiceDep,
+    providers: OAuthProvidersDep,
     current_session: OptionalSession,
-    session_token: AuthSessionToken = None,
+    session_token: SessionToken = None,
 ) -> RedirectResponse:
-    adapter = _get_adapter(registry, provider)
-    transaction = await adapter.get_transaction(request)
-    purpose = transaction.purpose if transaction else OAuthPurpose.LOGIN
+    adapter = providers[provider]
+    # Read first: resolve_identity() consumes the flow's state.
+    link_user_id = await adapter.link_user_id(request)
 
     try:
         identity = await adapter.resolve_identity(request)
     except OAuthProviderError as exc:
         logger.warning("OAuth callback failed for %s: %s", provider.value, exc)
-        return _failed_flow(provider, purpose, "oauth_failed")
+        return _failed_flow(provider, "oauth_failed", linking=link_user_id is not None)
 
-    # resolve_identity() succeeding means the state matched a flow this
-    # browser started, so its transaction was there.
-    assert transaction is not None
-
-    match purpose:
-        case OAuthPurpose.LINK:
-            return await _finish_link(
-                identity, transaction, current_session, auth_service, db
-            )
-        case OAuthPurpose.REAUTHENTICATE:
-            return await _finish_reauthentication(
-                adapter,
-                identity,
-                transaction,
-                current_session,
-                auth_service,
-                session_service,
-                db,
-            )
+    if link_user_id is not None:
+        return await _finish_link(db, identity, link_user_id, current_session)
 
     try:
-        user = await auth_service.sign_in_with_oauth(identity)
-    except AccountExistsError:
-        return _failed_flow(provider, purpose, "account_exists")
+        user = await service.sign_in_with_oauth(db, identity)
+    except HTTPException as exc:
+        # A refused sign-in goes back to the SPA by its code, as `?error=`.
+        return _failed_flow(provider, exc.detail["code"], linking=False)
 
     response = _frontend_redirect("/")
     # Not fresh: the provider may have answered from its SSO session.
-    await finish_sign_in(
-        db,
-        session_service,
-        response,
-        user=user,
-        previous_token=session_token,
-        fresh=False,
+    await start_session(
+        db, response, user=user, fresh=False, previous_token=session_token
     )
     audit("auth.login.succeeded", user_id=user.id, provider=provider.value)
 
@@ -361,59 +230,23 @@ async def handle_oauth_callback(
 
 
 async def _finish_link(
+    db: AsyncSession,
     identity: OAuthIdentity,
-    transaction: OAuthTransaction,
+    link_user_id: uuid.UUID,
     current_session: UserSession | None,
-    auth_service: AuthService,
-    db: SessionDep,
 ) -> RedirectResponse:
     provider = identity.provider
 
     # Still signed in as whoever started the flow.
-    if current_session is None or current_session.user_id != transaction.user_id:
-        return _failed_flow(provider, transaction.purpose, "link_failed")
+    if current_session is None or current_session.user_id != link_user_id:
+        return _failed_flow(provider, "link_failed", linking=True)
 
     try:
-        await auth_service.link_oauth_account(current_session.user, identity)
-    except IdentityInUseError:
-        return _failed_flow(provider, transaction.purpose, "identity_in_use")
-    except ProviderAlreadyLinkedError:
-        return _failed_flow(provider, transaction.purpose, "provider_already_linked")
+        await service.link_oauth_account(db, current_session.user, identity)
+    except HTTPException as exc:
+        return _failed_flow(provider, exc.detail["code"], linking=True)
 
     await db.commit()
     audit("auth.oauth.linked", user_id=current_session.user_id, provider=provider.value)
 
     return _frontend_redirect("/settings", linked=provider.value)
-
-
-async def _finish_reauthentication(
-    adapter: OAuthProviderAdapter,
-    identity: OAuthIdentity,
-    transaction: OAuthTransaction,
-    current_session: UserSession | None,
-    auth_service: AuthService,
-    session_service: SessionService,
-    db: SessionDep,
-) -> RedirectResponse:
-    provider = identity.provider
-
-    # The same person, signed in at the provider as one of their own linked
-    # accounts, having entered their credentials just now.
-    if (
-        current_session is None
-        or current_session.user_id != transaction.user_id
-        or not await auth_service.owns_oauth_identity(current_session.user, identity)
-        or not adapter.is_fresh(identity, transaction)
-    ):
-        return _failed_flow(provider, transaction.purpose, "reauth_failed")
-
-    token = session_service.reauthenticate(current_session)
-    await db.commit()
-    audit(
-        "auth.reauthenticated", user_id=current_session.user_id, provider=provider.value
-    )
-
-    response = _frontend_redirect("/settings", reauthenticated=provider.value)
-    set_session_cookie(response, token=token)
-
-    return response

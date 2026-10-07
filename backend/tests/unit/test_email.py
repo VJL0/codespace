@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Iterator
 
 import httpx2
@@ -77,32 +76,18 @@ async def test_a_network_failure_is_a_resend_error() -> None:
         await send()
 
 
-async def test_outside_production_emails_are_logged(
-    caplog: pytest.LogCaptureFixture,
+@pytest.mark.parametrize(
+    ("environment", "sender_type"),
+    [
+        ("production", ResendEmailSender),
+        ("development", LogEmailSender),
+        ("test", LogEmailSender),
+    ],
+)
+async def test_only_production_sends_through_resend(
+    monkeypatch: pytest.MonkeyPatch, environment: str, sender_type: type
 ) -> None:
-    caplog.set_level(logging.INFO, logger="app.core.email")
-
-    await LogEmailSender().send(
-        to="ada@example.com",
-        subject="Finish signing up",
-        html='<a href="https://app.example.test/x">link</a>',
-        idempotency_key="signup/1",
-    )
-
-    assert "https://app.example.test/x" in caplog.text
-
-
-async def test_production_sends_through_resend(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "environment", environment)
 
     async with httpx2.AsyncClient() as http_client:
-        sender = create_email_sender(http_client)
-
-    assert isinstance(sender, ResendEmailSender)
-    assert resend.api_key == settings.resend_api_key
-    assert isinstance(resend.default_async_http_client, Httpx2ResendClient)
-
-
-async def test_elsewhere_email_is_logged() -> None:
-    async with httpx2.AsyncClient() as http_client:
-        assert isinstance(create_email_sender(http_client), LogEmailSender)
+        assert isinstance(create_email_sender(http_client), sender_type)

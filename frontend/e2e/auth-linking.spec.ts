@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test"
 
 import {
   answerProvidersWith,
+  confirmByEmail,
   expect,
   newIdentity,
   signIn,
@@ -13,18 +14,13 @@ function row(page: Page, label: string) {
   return page.getByRole("listitem", { name: label })
 }
 
-// Sign in, then confirm it's you with the same account, as the settings
-// page asks before any change to sign-in methods.
+// Sign in, then confirm it's you by email, as the settings page asks before
+// any change to sign-in methods.
 async function signInAndConfirm(page: Page, identity: TestIdentity) {
   await signIn(page, identity)
   await page.goto("/settings")
   await row(page, "GitHub").getByRole("button", { name: "Link" }).click()
-  await page
-    .getByRole("button", {
-      name: `Continue with ${identity.provider === "google" ? "Google" : "Microsoft"}`,
-    })
-    .click()
-  await expect(page.getByText("Confirmed.")).toBeVisible()
+  await confirmByEmail(page, identity.email)
 }
 
 test("linking asks to confirm it's you, then adds the account", async ({
@@ -41,17 +37,12 @@ test("linking asks to confirm it's you, then adds the account", async ({
   await expect(
     page.getByRole("heading", { name: "Confirm it's you" })
   ).toBeVisible()
-  await page.getByRole("button", { name: "Continue with Google" }).click()
-  await expect(page.getByText("Confirmed.")).toBeVisible()
+  await confirmByEmail(page, google.email)
 
   await row(page, "GitHub").getByRole("button", { name: "Link" }).click()
 
   await expect(page.getByText("GitHub is now linked.")).toBeVisible()
   await expect(row(page, "GitHub")).toContainText(github.email)
-})
-
-test("Microsoft can confirm it's you too", async ({ page }) => {
-  await signInAndConfirm(page, newIdentity("microsoft"))
 })
 
 test("an account can be unlinked, but not the last one", async ({ page }) => {
@@ -89,43 +80,6 @@ test("an account linked to someone else is refused", async ({
   await expect(row(page, "GitHub")).toContainText("Not linked")
 })
 
-test("a stale confirmation from the provider is rejected", async ({ page }) => {
-  // Google answered from an old sign-in instead of asking again.
-  const google = newIdentity("google")
-  await signIn(page, google)
-  const anHourAgo = Math.floor(Date.now() / 1000) - 3600
-  await answerProvidersWith(page.context(), {
-    google: {
-      claims: {
-        ...(google.response.claims as object),
-        auth_time: anHourAgo,
-      },
-    },
-  })
-  await page.goto("/settings")
-  await row(page, "GitHub").getByRole("button", { name: "Link" }).click()
-
-  await page.getByRole("button", { name: "Continue with Google" }).click()
-
-  await expect(page.getByRole("alert")).toContainText(
-    "We couldn't confirm it's you"
-  )
-})
-
-test("GitHub can't confirm it's you, but its email can", async ({ page }) => {
-  await signIn(page, newIdentity("github"))
-  await page.goto("/settings")
-
-  await row(page, "Google").getByRole("button", { name: "Link" }).click()
-
-  await expect(
-    page.getByRole("button", { name: "Email me a link" })
-  ).toBeVisible()
-  await expect(page.getByRole("button", { name: /Continue with/ })).toHaveCount(
-    0
-  )
-})
-
 test("without an email, a GitHub-only user has no way to confirm", async ({
   page,
 }) => {
@@ -139,7 +93,7 @@ test("without an email, a GitHub-only user has no way to confirm", async ({
   await row(page, "Google").getByRole("button", { name: "Link" }).click()
 
   await expect(
-    page.getByText("None of your sign-in methods can confirm it's you yet")
+    page.getByText("needs a password or an email address")
   ).toBeVisible()
   await expect(
     page.getByRole("button", { name: "Email me a link" })

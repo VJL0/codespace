@@ -40,17 +40,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse
 from testcontainers.community.postgres import PostgresContainer
 
+from app.api.deps import get_email_sender, get_http_client, get_oauth_providers
 from app.core.config import settings
 from app.main import app
-from app.modules.auth.dependencies import (
-    get_email_sender,
-    get_http_client,
-    get_oauth_provider_registry,
-)
-from app.modules.auth.models import OAuthProvider
-from app.modules.auth.providers.registry import (
-    create_oauth_provider_registry,
-)
+from app.modules.auth.providers.registry import create_oauth_providers
 from tests.support.database import alembic_config
 from tests.support.email import OutboxEmailSender
 from tests.support.environment import PROVIDER_CREDENTIALS
@@ -88,12 +81,12 @@ async def latest_email(to: str) -> dict[str, str]:
 
 
 def main() -> None:
-    registry = create_oauth_provider_registry()
+    providers = create_oauth_providers()
 
-    for provider in OAuthProvider:
-        registry.get(provider).client.client_kwargs["transport"] = fake_oauth.transport
+    for adapter in providers.values():
+        adapter.client.client_kwargs["transport"] = fake_oauth.transport
 
-    app.dependency_overrides[get_oauth_provider_registry] = lambda: registry
+    app.dependency_overrides[get_oauth_providers] = lambda: providers
     app.dependency_overrides[get_email_sender] = lambda: outbox
     app.dependency_overrides[get_http_client] = lambda: outside
     app.include_router(e2e_router, prefix="/api/__e2e__")
