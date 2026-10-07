@@ -112,8 +112,28 @@ test("a stale confirmation from the provider is rejected", async ({ page }) => {
   )
 })
 
-test("GitHub can't confirm it's you", async ({ page }) => {
+test("GitHub can't confirm it's you, but its email can", async ({ page }) => {
   await signIn(page, newIdentity("github"))
+  await page.goto("/settings")
+
+  await row(page, "Google").getByRole("button", { name: "Link" }).click()
+
+  await expect(
+    page.getByRole("button", { name: "Email me a link" })
+  ).toBeVisible()
+  await expect(page.getByRole("button", { name: /Continue with/ })).toHaveCount(
+    0
+  )
+})
+
+test("without an email, a GitHub-only user has no way to confirm", async ({
+  page,
+}) => {
+  const github = newIdentity("github")
+  await signIn(page, {
+    ...github,
+    response: { ...github.response, github_emails: [] },
+  })
   await page.goto("/settings")
 
   await row(page, "Google").getByRole("button", { name: "Link" }).click()
@@ -121,7 +141,7 @@ test("GitHub can't confirm it's you", async ({ page }) => {
   await expect(
     page.getByText("None of your sign-in methods can confirm it's you yet")
   ).toBeVisible()
-  await expect(page.getByRole("button", { name: /Continue with/ })).toHaveCount(
-    0
-  )
+  await expect(
+    page.getByRole("button", { name: "Email me a link" })
+  ).toHaveCount(0)
 })

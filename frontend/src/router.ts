@@ -12,6 +12,14 @@ export const router = createBrowserRouter([
         lazy: () => import("@/routes/login"),
       },
       {
+        path: "signup",
+        lazy: () => import("@/routes/signup"),
+      },
+      {
+        path: "signup/complete",
+        lazy: () => import("@/routes/signup-complete"),
+      },
+      {
         path: "join/:code?",
         lazy: () => import("@/routes/join"),
       },
@@ -75,6 +83,10 @@ export const router = createBrowserRouter([
           {
             path: "settings",
             lazy: () => import("@/routes/settings"),
+          },
+          {
+            path: "reauthenticate",
+            lazy: () => import("@/routes/reauthenticate"),
           },
         ],
       },

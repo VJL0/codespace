@@ -10,6 +10,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -115,3 +116,86 @@ class OAuthAccount(TimestampMixin, Base):
             f"provider={self.provider.value!r}"
             ")"
         )
+
+
+class PasswordCredential(TimestampMixin, Base):
+    """A user's password, if they set one (User 1 ─── 0..1 PasswordCredential).
+
+    updated_at is when it last changed.
+    """
+
+    __tablename__ = "password_credentials"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    # The Argon2id PHC string; it carries its own salt and parameters.
+    password_hash: Mapped[str] = mapped_column(Text)
+
+    user: Mapped[User] = relationship(lazy="raise")
+
+    def __repr__(self) -> str:
+        return f"PasswordCredential(user_id={self.user_id!s})"
+
+
+class EmailTokenPurpose(enum.StrEnum):
+    SIGNUP = "signup"
+    PASSWORD_RESET = "password_reset"
+    PASSWORD_SETUP = "password_setup"
+    REAUTHENTICATION = "reauthentication"
+
+
+class EmailToken(TimestampMixin, Base):
+    """A single-use secret emailed to prove someone receives mail at `email`.
+
+    Only a hash of the secret is stored, so these rows alone can't be used.
+    """
+
+    __tablename__ = "email_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid7)
+
+    purpose: Mapped[EmailTokenPurpose] = mapped_column(
+        Enum(
+            EmailTokenPurpose,
+            name="email_token_purpose",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+    )
+
+    # Where the secret was sent.
+    email: Mapped[str] = mapped_column(String(254))
+
+    # Whose account it's for; none for a signup, which has no account yet.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+
+    # The session a reauthentication link confirms; only that session may
+    # complete it.
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_sessions.id", ondelete="CASCADE")
+    )
+
+    # Hex SHA-256 of the secret.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+
+    expires_at: Mapped[datetime]
+
+    consumed_at: Mapped[datetime | None]
+
+    def __repr__(self) -> str:
+        return f"EmailToken(id={self.id!s}, purpose={self.purpose.value!r})"
+
+
+class RateLimitCounter(Base):
+    """Attempts under `key` in the fixed window starting at `window_start`."""
+
+    __tablename__ = "rate_limit_counters"
+
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+
+    window_start: Mapped[datetime] = mapped_column(primary_key=True)
+
+    hits: Mapped[int]

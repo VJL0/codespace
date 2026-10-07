@@ -11,7 +11,10 @@ from app.modules.auth.exceptions import (
 )
 from app.modules.auth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.base import OAuthIdentity
-from app.modules.auth.repository import OAuthAccountRepository
+from app.modules.auth.repository import (
+    OAuthAccountRepository,
+    PasswordCredentialRepository,
+)
 from app.modules.users.emails import normalize_email
 from app.modules.users.models import User, UserEmail
 from app.modules.users.repository import UserEmailRepository, UserRepository
@@ -23,10 +26,12 @@ class AuthService:
         accounts: OAuthAccountRepository,
         users: UserRepository,
         emails: UserEmailRepository,
+        credentials: PasswordCredentialRepository,
     ) -> None:
         self._accounts = accounts
         self._users = users
         self._emails = emails
+        self._credentials = credentials
 
     async def sign_in_with_oauth(self, oauth_identity: OAuthIdentity) -> User:
         now = datetime.now(UTC)
@@ -152,7 +157,9 @@ class AuthService:
         if account is None:
             raise OAuthAccountNotLinkedError
 
-        if len(await self._accounts.list_for_user(user.id)) <= 1:
+        remaining = len(await self._accounts.list_for_user(user.id)) - 1
+
+        if remaining == 0 and await self._credentials.get(user.id) is None:
             raise LastSignInMethodError
 
         await self._accounts.delete(account)

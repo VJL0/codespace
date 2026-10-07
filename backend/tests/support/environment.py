@@ -25,6 +25,9 @@ def app_environment() -> dict[str, str]:
         "ALLOWED_HOSTS": f'["{APP_HOST}"]',
         "DATABASE_URL": "postgresql+asyncpg://unused.invalid/unused",
         "OAUTH_SESSION_SECRET_KEY": "test-oauth-session-secret",
+        "RESEND_API_KEY": "re_test_unused",
+        "EMAIL_FROM": "CodeSpace <no-reply@example.com>",
+        "RATE_LIMIT_SECRET_KEY": "test-rate-limit-secret",
         **{
             f"{provider.upper()}_CLIENT_{part}": value
             for provider, (client_id, secret) in PROVIDER_CREDENTIALS.items()

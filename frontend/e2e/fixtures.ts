@@ -1,4 +1,4 @@
-import { test, type BrowserContext, type Page } from "@playwright/test"
+import { expect, test, type BrowserContext, type Page } from "@playwright/test"
 
 export { expect, test } from "@playwright/test"
 
@@ -144,5 +144,55 @@ export async function signIn(
   identity: TestIdentity
 ): Promise<void> {
   await signInWith(page, identity.provider, identity.response)
+  await page.waitForURL("/")
+}
+
+export const PASSWORD = "a perfectly fine passphrase"
+
+// The link in the last email sent to `to`. Emails go out after the response,
+// so wait for it to arrive.
+export async function latestEmailLink(page: Page, to: string): Promise<string> {
+  let link = ""
+
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(
+        `/api/__e2e__/outbox?to=${encodeURIComponent(to)}`
+      )
+      link = response.ok() ? (await response.json()).link : ""
+      return link
+    })
+    .not.toBe("")
+
+  return link
+}
+
+export interface PasswordUser {
+  name: string
+  email: string
+  password: string
+}
+
+export function newPasswordUser(): PasswordUser {
+  const id = crypto.randomUUID()
+
+  return {
+    name: `Test User ${id.slice(0, 8)}`,
+    email: `user-${id}@example.com`,
+    password: PASSWORD,
+  }
+}
+
+// Sign up by email and land signed in.
+export async function signUp(page: Page, user: PasswordUser): Promise<void> {
+  await page.goto("/signup")
+  await page.getByLabel("Email").fill(user.email)
+  await page.getByRole("button", { name: "Email me a link" }).click()
+  await expect(page.getByText(`Check ${user.email}`)).toBeVisible()
+
+  await page.goto(await latestEmailLink(page, user.email))
+  await page.getByLabel("Name").fill(user.name)
+  await page.getByLabel("Password").fill(user.password)
+  await page.getByRole("button", { name: "Create account" }).click()
   await page.waitForURL("/")
 }

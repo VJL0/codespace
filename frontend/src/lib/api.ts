@@ -41,11 +41,14 @@ export async function apiFetch(
       .json()
       .then((body) => body?.detail)
       .catch(() => null)
+    // Either a plain message, or {code, message} for errors the SPA acts on.
     const code = typeof detail?.code === "string" ? detail.code : null
     const message =
       typeof detail === "string"
         ? detail
-        : `Request failed (${response.status}).`
+        : typeof detail?.message === "string"
+          ? detail.message
+          : `Request failed (${response.status}).`
 
     throw new ApiError(response.status, code, message)
   }
@@ -76,6 +79,7 @@ export async function logoutEverywhere(): Promise<void> {
 }
 
 export interface SignInMethods {
+  has_password: boolean
   identities: {
     provider: OAuthProvider
     email_snapshot: string | null
@@ -116,4 +120,59 @@ export function reauthenticateWith(provider: OAuthProvider): Promise<void> {
 
 export async function unlinkProvider(provider: OAuthProvider): Promise<void> {
   await apiFetch(`/api/auth/identities/${provider}`, { method: "DELETE" })
+}
+
+// Email-first sign-up: this only sends a link; the account is created when
+// it's opened (completeRegistration).
+export async function register(email: string): Promise<void> {
+  await apiFetch("/api/auth/register", { method: "POST", json: { email } })
+}
+
+export async function completeRegistration(details: {
+  token: string
+  name: string
+  password: string
+}): Promise<void> {
+  await apiFetch("/api/auth/register/complete", {
+    method: "POST",
+    json: details,
+  })
+}
+
+export async function loginWithPassword(
+  email: string,
+  password: string
+): Promise<void> {
+  await apiFetch("/api/auth/login", {
+    method: "POST",
+    json: { email, password },
+  })
+}
+
+export async function reauthenticateWithPassword(
+  password: string
+): Promise<void> {
+  await apiFetch("/api/auth/reauthenticate", {
+    method: "POST",
+    json: { password },
+  })
+}
+
+export async function sendReauthenticationEmail(): Promise<void> {
+  await apiFetch("/api/auth/reauthenticate/email", { method: "POST" })
+}
+
+export async function completeEmailReauthentication(
+  token: string
+): Promise<void> {
+  await apiFetch("/api/auth/reauthenticate/email/complete", {
+    method: "POST",
+    json: { token },
+  })
+}
+
+// The secret an emailed link carries in its #token= fragment, which never
+// reaches a server.
+export function tokenFromLocation(): string | null {
+  return new URLSearchParams(window.location.hash.slice(1)).get("token")
 }

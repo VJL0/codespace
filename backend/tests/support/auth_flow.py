@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx2
 import pytest
 
+from tests.support.email import OutboxEmailSender
 from tests.support.environment import APP_HOST, APP_URL
 from tests.support.fake_oauth import MICROSOFT_ORG_TENANT, FakeOAuthServer
 
@@ -101,6 +102,32 @@ async def complete_flow(
 
     return await client.get(
         fake_oauth.authorize(start.json()["authorization_url"], **provider_response)
+    )
+
+
+PASSWORD = "a perfectly fine passphrase"
+
+
+async def sign_up(
+    client: httpx2.AsyncClient,
+    outbox: OutboxEmailSender,
+    email: str = "grace@example.com",
+    *,
+    name: str = "Grace Hopper",
+    password: str = PASSWORD,
+) -> httpx2.Response:
+    """Sign up by email: request the link, then complete it."""
+
+    requested = await client.post("/api/auth/register", json={"email": email})
+    assert requested.status_code == 202, requested.text
+
+    return await client.post(
+        "/api/auth/register/complete",
+        json={
+            "token": outbox.last_to(email).token(),
+            "name": name,
+            "password": password,
+        },
     )
 
 

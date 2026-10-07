@@ -1,27 +1,21 @@
 from __future__ import annotations
 
-import hashlib
-import secrets
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from app.modules.auth.models import UserSession
 from app.modules.auth.repository import UserSessionRepository
+from app.modules.auth.tokens import hash_secret, new_secret
 from app.modules.users.models import User
 
 if TYPE_CHECKING:
     from fastapi import Response
     from sqlalchemy.ext.asyncio import AsyncSession
 
-TOKEN_BYTES = 32
 SESSION_COOKIE_NAME = "__Host-Http-session"
 SESSION_ABSOLUTE_TIMEOUT = timedelta(days=14)
 # How long after a fresh authentication sensitive changes stay allowed.
 RECENT_AUTH_WINDOW = timedelta(minutes=10)
-
-
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def is_recently_authenticated(user_session: UserSession) -> bool:
@@ -44,7 +38,7 @@ class SessionService:
         """Start a session; `fresh` when the sign-in proved the person is
         present (a password, an email link), not just a provider's SSO."""
 
-        token = secrets.token_urlsafe(TOKEN_BYTES)
+        token = new_secret()
         now = datetime.now(UTC)
 
         # By relationship rather than user.id: a user created in this same
@@ -52,7 +46,7 @@ class SessionService:
         self._sessions.add(
             UserSession(
                 user=user,
-                token_hash=_hash_token(token),
+                token_hash=hash_secret(token),
                 authenticated_at=now if fresh else None,
                 expires_at=now + SESSION_ABSOLUTE_TIMEOUT,
             )
@@ -67,8 +61,8 @@ class SessionService:
         any change in what a session may do.
         """
 
-        token = secrets.token_urlsafe(TOKEN_BYTES)
-        user_session.token_hash = _hash_token(token)
+        token = new_secret()
+        user_session.token_hash = hash_secret(token)
         user_session.authenticated_at = datetime.now(UTC)
 
         return token
@@ -77,7 +71,7 @@ class SessionService:
         """Return the live session for a token, with its active user loaded,
         or None."""
 
-        user_session = await self._sessions.get_by_token_hash(_hash_token(token))
+        user_session = await self._sessions.get_by_token_hash(hash_secret(token))
 
         if user_session is None:
             return None
@@ -102,7 +96,7 @@ class SessionService:
         return user_session
 
     async def revoke_session(self, token: str) -> None:
-        await self._sessions.delete_by_token_hash(_hash_token(token))
+        await self._sessions.delete_by_token_hash(hash_secret(token))
 
     async def revoke_all_sessions(self, user: User) -> None:
         await self._sessions.delete_for_user(user.id)

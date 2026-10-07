@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from app.modules.auth.exceptions import AccountExistsError, LastSignInMethodError
 from app.modules.auth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.base import OAuthIdentity
-from app.modules.auth.repository import OAuthAccountRepository
+from app.modules.auth.repository import (
+    OAuthAccountRepository,
+    PasswordCredentialRepository,
+)
 from app.modules.auth.service import AuthService
 from app.modules.users.models import User, UserEmail
 from app.modules.users.repository import UserEmailRepository, UserRepository
@@ -23,7 +26,10 @@ from tests.support.database import MakeUser, count_rows
 @pytest.fixture
 def auth(db: AsyncSession) -> AuthService:
     return AuthService(
-        OAuthAccountRepository(db), UserRepository(db), UserEmailRepository(db)
+        OAuthAccountRepository(db),
+        UserRepository(db),
+        UserEmailRepository(db),
+        PasswordCredentialRepository(db),
     )
 
 
@@ -221,7 +227,10 @@ async def test_concurrent_unlinks_leave_one_sign_in_method(engine: AsyncEngine) 
     async def unlink(provider: OAuthProvider) -> bool:
         async with AsyncSession(engine) as db:
             service = AuthService(
-                OAuthAccountRepository(db), UserRepository(db), UserEmailRepository(db)
+                OAuthAccountRepository(db),
+                UserRepository(db),
+                UserEmailRepository(db),
+                PasswordCredentialRepository(db),
             )
 
             try:
