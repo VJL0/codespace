@@ -1,12 +1,15 @@
 import googleLogoUrl from "@/assets/google-g.svg"
 
-// The gradient "G" from Google's sign-in asset bundle. Its gradient is drawn
-// with a <foreignObject>, so it ships as a file instead of inline JSX.
+// Google's gradient "G": the icon-only Light button from Google's
+// signin-assets.zip, cropped to the logo. Its gradient is drawn with a
+// <foreignObject>, so it ships as a file instead of inline JSX.
+// https://developers.google.com/identity/branding-guidelines
 export function GoogleLogo() {
   return <img src={googleLogoUrl} alt="" className="size-4.5" />
 }
 
-// Microsoft's official logo SVG, unaltered.
+// Microsoft's logo, unaltered (ms-symbollockup_mssymbol_19.svg).
+// https://learn.microsoft.com/entra/identity-platform/howto-add-branding-in-apps
 export function MicrosoftLogo() {
   return (
     <svg viewBox="0 0 21 21" className="size-4.5" aria-hidden="true">
@@ -18,8 +21,9 @@ export function MicrosoftLogo() {
   )
 }
 
-// The Invertocat from GitHub's brand kit; GitHub allows only black or white,
-// so it follows the text color.
+// GitHub's Invertocat, the same mark as Primer's mark-github octicon. GitHub
+// allows it in black or white, so it follows the text color.
+// https://brand.github.com/foundations/logo
 export function GitHubLogo() {
   return (
     <svg

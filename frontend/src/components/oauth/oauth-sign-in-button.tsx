@@ -21,7 +21,7 @@ export function OAuthSignInButton({
       )}
     >
       <provider.Logo />
-      Sign in with {provider.label}
+      Continue with {provider.label}
     </a>
   )
 }

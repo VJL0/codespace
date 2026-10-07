@@ -1,9 +1,16 @@
 import { useState, type SubmitEvent } from "react"
 import { Link, redirect } from "react-router"
 
+import { OAuthSignInButton } from "@/components/oauth/oauth-sign-in-button"
+import { OAUTH_PROVIDERS } from "@/components/oauth/providers"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldGroup,
+  FieldLabel,
+  FieldSeparator,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { getCurrentUser, register } from "@/lib/api"
 
@@ -57,29 +64,43 @@ export function Component() {
             </AlertDescription>
           </Alert>
         ) : (
-          <form onSubmit={handleSubmit}>
-            <FieldGroup>
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-              <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
-                <Input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+          <>
+            <form onSubmit={handleSubmit}>
+              <FieldGroup>
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+                <Field>
+                  <FieldLabel htmlFor="email">Email</FieldLabel>
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                </Field>
+                <Button type="submit" size="lg" disabled={submitting}>
+                  Continue with email
+                </Button>
+              </FieldGroup>
+            </form>
+
+            <FieldSeparator>or</FieldSeparator>
+
+            <div className="flex w-full flex-col gap-2">
+              {OAUTH_PROVIDERS.map((provider) => (
+                <OAuthSignInButton
+                  key={provider.id}
+                  provider={provider}
+                  className="w-full"
                 />
-              </Field>
-              <Button type="submit" size="lg" disabled={submitting}>
-                Email me a link
-              </Button>
-            </FieldGroup>
-          </form>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
