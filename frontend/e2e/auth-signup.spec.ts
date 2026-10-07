@@ -25,7 +25,7 @@ test("a breached password is refused, and the link still works", async ({
   const user = newPasswordUser()
   await page.goto("/signup")
   await page.getByLabel("Email").fill(user.email)
-  await page.getByRole("button", { name: "Email me a link" }).click()
+  await page.getByRole("button", { name: "Continue with email" }).click()
   await page.goto(await latestEmailLink(page, user.email))
   await page.getByLabel("Name").fill(user.name)
 
@@ -64,9 +64,23 @@ test("signing up with a taken address emails its owner instead", async ({
 
   await page.goto("/signup")
   await page.getByLabel("Email").fill(identity.email)
-  await page.getByRole("button", { name: "Email me a link" }).click()
+  await page.getByRole("button", { name: "Continue with email" }).click()
 
   // The page says the same as for a free address.
   await expect(page.getByText(`Check ${identity.email}`)).toBeVisible()
   expect(await latestEmailLink(page, identity.email)).toMatch(/\/login$/)
+})
+
+test("sign-up offers each provider too", async ({ page }) => {
+  await page.goto("/signup")
+
+  for (const [label, id] of [
+    ["Google", "google"],
+    ["Microsoft", "microsoft"],
+    ["GitHub", "github"],
+  ]) {
+    await expect(
+      page.getByRole("link", { name: `Continue with ${label}` })
+    ).toHaveAttribute("href", `/api/auth/${id}/login`)
+  }
 })
