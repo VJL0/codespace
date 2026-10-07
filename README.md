@@ -59,6 +59,8 @@ More classroom-management and collaboration features are currently in developmen
 
 ## Architecture
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the code map and [docs/auth.md](docs/auth.md) for authentication.
+
 CodeSpace uses a full-stack architecture with a React frontend and Python backend.
 
 The backend is structured so API logic, business logic, and data access remain separated as the application grows.
