@@ -9,15 +9,14 @@ import pytest
 from joserfc.jwk import RSAKey
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.api.deps import get_session
-from app.main import app
-from app.modules.auth.dependencies import (
+from app.api.deps import (
     get_email_sender,
     get_http_client,
-    get_oauth_provider_registry,
+    get_oauth_providers,
+    get_session,
 )
-from app.modules.auth.models import OAuthProvider
-from app.modules.auth.providers.registry import create_oauth_provider_registry
+from app.main import app
+from app.modules.auth.providers.registry import create_oauth_providers
 from tests.support.auth_flow import SAME_ORIGIN_HEADERS
 from tests.support.email import OutboxEmailSender
 from tests.support.environment import APP_URL, PROVIDER_CREDENTIALS
@@ -62,10 +61,10 @@ async def client(
     overridden here.
     """
 
-    registry = create_oauth_provider_registry()
+    providers = create_oauth_providers()
 
-    for provider in OAuthProvider:
-        registry.get(provider).client.client_kwargs["transport"] = fake_oauth.transport
+    for adapter in providers.values():
+        adapter.client.client_kwargs["transport"] = fake_oauth.transport
 
     # A fresh session per request, as in production, all on the test's
     # connection so the request's writes are rolled back with it.
@@ -74,7 +73,7 @@ async def client(
             yield session
 
     app.dependency_overrides[get_session] = get_test_session
-    app.dependency_overrides[get_oauth_provider_registry] = lambda: registry
+    app.dependency_overrides[get_oauth_providers] = lambda: providers
     app.dependency_overrides[get_email_sender] = lambda: outbox
 
     outside = httpx2.AsyncClient(transport=fake_pwned.transport)

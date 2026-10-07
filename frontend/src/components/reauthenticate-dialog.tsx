@@ -1,6 +1,5 @@
 import { useState, type SubmitEvent } from "react"
 
-import { OAUTH_PROVIDERS } from "@/components/oauth/providers"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,10 +18,8 @@ import {
 import { Input } from "@/components/ui/input"
 import {
   errorMessage,
-  reauthenticateWith,
   reauthenticateWithPassword,
   sendReauthenticationEmail,
-  type OAuthProvider,
 } from "@/lib/api"
 
 interface ReauthenticateDialogProps {
@@ -31,8 +28,6 @@ interface ReauthenticateDialogProps {
   hasPassword: boolean
   // The primary email a link can be sent to, if any.
   email: string | null
-  // Linked providers that can make the user enter their credentials again.
-  providers: OAuthProvider[]
   // After confirming without leaving the page (a password).
   onConfirmed: () => void
 }
@@ -44,14 +39,11 @@ export function ReauthenticateDialog({
   onOpenChange,
   hasPassword,
   email,
-  providers,
   onConfirmed,
 }: ReauthenticateDialogProps) {
   const [password, setPassword] = useState("")
   const [emailSent, setEmailSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const options = OAUTH_PROVIDERS.filter(({ id }) => providers.includes(id))
-  const hasAnyWay = hasPassword || email !== null || options.length > 0
 
   async function attempt(action: () => Promise<void>) {
     setError(null)
@@ -78,9 +70,9 @@ export function ReauthenticateDialog({
         <DialogHeader>
           <DialogTitle>Confirm it's you</DialogTitle>
           <DialogDescription>
-            {hasAnyWay
+            {hasPassword || email
               ? "Changing how you sign in needs a fresh confirmation."
-              : "None of your sign-in methods can confirm it's you yet: GitHub can't be made to ask for your password again."}
+              : "Confirming it's you needs a password or an email address, and your account has neither."}
           </DialogDescription>
         </DialogHeader>
 
@@ -110,22 +102,7 @@ export function ReauthenticateDialog({
             </form>
           )}
 
-          {hasPassword && (options.length > 0 || email) && (
-            <FieldSeparator>or</FieldSeparator>
-          )}
-
-          {options.map((provider) => (
-            <Button
-              key={provider.id}
-              variant="outline"
-              size="lg"
-              className="gap-3"
-              onClick={() => attempt(() => reauthenticateWith(provider.id))}
-            >
-              <provider.Logo />
-              Continue with {provider.label}
-            </Button>
-          ))}
+          {hasPassword && email && <FieldSeparator>or</FieldSeparator>}
 
           {email &&
             (emailSent ? (

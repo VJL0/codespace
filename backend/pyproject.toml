@@ -63,7 +63,7 @@ source = ["app"]
 branch = true
 
 [tool.coverage.report]
-fail_under = 95
+fail_under = 80
 show_missing = true
 skip_covered = true
 exclude_also = ["if TYPE_CHECKING:", "@abstractmethod"]

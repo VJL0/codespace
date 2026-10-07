@@ -39,8 +39,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   identity_in_use: "That account is already linked to a different user.",
   provider_already_linked: "You already have an account with that provider.",
   link_failed: "You were signed out before linking finished. Try again.",
-  reauth_failed:
-    "We couldn't confirm it's you. Sign in again with your own account when asked.",
 }
 
 function providerLabel(provider: string | null): string | undefined {
@@ -57,7 +55,7 @@ export function Component() {
   const [actionError, setActionError] = useState<string | null>(null)
 
   const linked = providerLabel(searchParams.get("linked"))
-  // Back from a provider or an email link, or confirmed here with a password.
+  // Back from an email link, or confirmed here with a password.
   const reauthenticated = confirmed || searchParams.has("reauthenticated")
   const errorCode = searchParams.get("error")
   const error =
@@ -234,7 +232,6 @@ export function Component() {
         onOpenChange={setReauthOpen}
         hasPassword={methods.has_password}
         email={primaryEmail}
-        providers={methods.reauthentication_providers}
         onConfirmed={() => {
           setReauthOpen(false)
           setConfirmed(true)

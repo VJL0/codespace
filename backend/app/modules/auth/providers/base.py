@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import enum
-import time
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Any, ClassVar
+from typing import Any, ClassVar, final
 
 import httpx2
 from authlib.common.errors import AuthlibBaseError
@@ -14,11 +10,15 @@ from authlib.integrations.starlette_client import OAuth, StarletteOAuth2App
 from joserfc.errors import JoseError
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
 
-from app.modules.auth.exceptions import OAuthProviderError, ReauthUnsupportedError
 from app.modules.auth.models import OAuthProvider
 from app.modules.users.emails import EmailNotValidError, normalize_email
+
+
+class OAuthProviderError(Exception):
+    """The provider flow failed: a denied consent, a mismatched state, a
+    rejected code exchange, an invalid ID token, an unreachable provider or
+    missing claims."""
 
 
 class OAuthIdentity(BaseModel):
@@ -30,9 +30,6 @@ class OAuthIdentity(BaseModel):
     email_verified: bool = False
     full_name: str | None = None
     avatar_url: str | None = None
-    # When the person last entered credentials at the provider (OIDC
-    # `auth_time`), if it says.
-    auth_time: datetime | None = None
 
     @field_validator("email")
     @classmethod
@@ -54,28 +51,10 @@ class OAuthIdentity(BaseModel):
         return self.email if self.email_verified else None
 
 
-class OAuthPurpose(enum.StrEnum):
-    LOGIN = "login"
-    LINK = "link"
-    REAUTHENTICATE = "reauthenticate"
-
-
-@dataclass(frozen=True)
-class OAuthTransaction:
-    """What a browser's provider flow was started for.
-
-    Kept by Authlib with the flow's state, in the signed OAuth cookie, so
-    it's bound to that browser and that flow, and gone once the callback
-    consumes it.
-    """
-
-    purpose: OAuthPurpose
-    # The signed-in user who started a link or reauthentication.
-    user_id: uuid.UUID | None
-    started_at: datetime
-
-
 class OAuthProviderAdapter(ABC):
+    """One provider's OAuth flow. The flow and its checks are final; a provider
+    supplies its client config, its identity and any ID token claim checks."""
+
     provider: ClassVar[OAuthProvider]
 
     def __init__(self, oauth: OAuth) -> None:
@@ -89,78 +68,53 @@ class OAuthProviderAdapter(ABC):
     @abstractmethod
     async def fetch_identity(self, token: dict[str, Any]) -> OAuthIdentity: ...
 
-    def id_token_claims_options(self) -> dict[str, Any]:
+    def id_token_claims_options(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """ID token claim checks beyond the `aud` check every provider gets.
 
-        These replace Authlib's defaults, so an OIDC provider must check `iss`
-        here. Authlib pops `validate` hooks out of the options, so build a
-        fresh dict on every call.
+        These replace Authlib's defaults, so this keeps its `iss` check against
+        the discovery document's issuer, and makes it essential. Override it
+        for a provider whose tokens carry another issuer. Authlib pops
+        `validate` hooks out of the options, so build a fresh dict on every
+        call.
         """
 
-        return {}
+        # Plain OAuth 2.0 (GitHub) has no discovery document and no ID token.
+        if "issuer" not in metadata:
+            return {}
 
-    def forced_reauth_params(self) -> dict[str, str] | None:
-        """Authorization parameters that make the provider ask for the
-        person's credentials even with a live provider session, and report
-        when they did in `auth_time`; None if the provider can't."""
+        return {"iss": {"essential": True, "values": [metadata["issuer"]]}}
 
-        return None
-
-    def is_fresh(self, identity: OAuthIdentity, transaction: OAuthTransaction) -> bool:
-        """Whether the person entered credentials at the provider during
-        this flow, as opposed to the provider's SSO answering for them.
-
-        `auth_time` is checked, not just requested: someone at an unattended
-        browser could strip the forcing parameter from the URL.
-        """
-
-        if self.forced_reauth_params() is None or identity.auth_time is None:
-            return False
-
-        # auth_time has one-second precision, and the provider's clock and
-        # ours differ a little.
-        return identity.auth_time >= transaction.started_at - timedelta(minutes=1)
-
+    @final
     def _audience_is_this_client(self, claims: Any, audience: str | list[str]) -> bool:
-        # Authlib only checks `aud` when asked to. OIDC Core 3.1.3.7: it must
-        # list this client, and no other audience this client doesn't trust.
+        """Authlib `aud` validator. Authlib only checks `aud` when asked to;
+        OIDC Core 3.1.3.7 requires it to list this client, and no other
+        audience this client doesn't trust."""
+
         return audience in (self.client.client_id, [self.client.client_id])
 
+    @final
     async def authorization_url(
         self,
         request: Request,
         redirect_uri: str,
         *,
-        purpose: OAuthPurpose = OAuthPurpose.LOGIN,
-        user_id: uuid.UUID | None = None,
+        link_user_id: uuid.UUID | None = None,
     ) -> str:
-        """Start a flow for `purpose`; return the provider URL to send the
-        browser to. The flow's state and transaction go in the OAuth cookie."""
-
-        # Always show the account picker: signing out here doesn't end the
-        # provider session, so this is how a user switches accounts.
-        params = {"prompt": "select_account"}
-
-        if purpose is OAuthPurpose.REAUTHENTICATE:
-            forced = self.forced_reauth_params()
-
-            if forced is None:
-                raise ReauthUnsupportedError(self.provider)
-
-            params |= forced
+        """Start a sign-in, or linking for `link_user_id`; return the provider
+        URL to send the browser to. The flow's state goes in the OAuth cookie."""
 
         try:
+            # Always show the account picker: signing out here doesn't end the
+            # provider session, so this is how a user switches accounts.
             authorization = await self.client.create_authorization_url(
-                redirect_uri, **params
+                redirect_uri, prompt="select_account"
             )
-            # Authlib keeps the extra keys alongside state, PKCE verifier and
-            # nonce, and ignores them when it exchanges the code.
+            # Authlib keeps the extra key alongside state, PKCE verifier and
+            # nonce, and ignores it when it exchanges the code.
             await self.client.save_authorize_data(
                 request,
                 redirect_uri=redirect_uri,
-                purpose=purpose.value,
-                user_id=str(user_id) if user_id else None,
-                started_at=time.time(),
+                link_user_id=str(link_user_id) if link_user_id else None,
                 **authorization,
             )
         except (AuthlibBaseError, httpx2.HTTPError) as exc:
@@ -168,39 +122,26 @@ class OAuthProviderAdapter(ABC):
 
         return authorization["url"]
 
-    async def start_authorization(
-        self, request: Request, redirect_uri: str
-    ) -> RedirectResponse:
-        return RedirectResponse(
-            await self.authorization_url(request, redirect_uri), status_code=302
-        )
-
-    async def get_transaction(self, request: Request) -> OAuthTransaction | None:
-        """The transaction of the flow this callback answers, or None when
-        this browser started no such flow. Read it before resolve_identity(),
-        which consumes it."""
+    @final
+    async def link_user_id(self, request: Request) -> uuid.UUID | None:
+        """The user this callback's flow links an account to; None for a
+        sign-in, or when this browser started no such flow. Read it before
+        resolve_identity(), which consumes the flow's state."""
 
         state = request.query_params.get("state")
         data = state and await self.client.framework.get_state_data(
             request.session, state
         )
+        user_id = data.get("link_user_id") if data else None
 
-        if not data:
-            return None
+        return uuid.UUID(user_id) if user_id else None
 
-        user_id = data.get("user_id")
-
-        return OAuthTransaction(
-            purpose=OAuthPurpose(data.get("purpose", OAuthPurpose.LOGIN)),
-            user_id=uuid.UUID(user_id) if user_id else None,
-            started_at=datetime.fromtimestamp(data.get("started_at", 0), UTC),
-        )
-
-    async def _verify_response_issuer(self, request: Request) -> None:
+    @final
+    def _verify_response_issuer(
+        self, request: Request, metadata: dict[str, Any]
+    ) -> None:
         """RFC 9207 mix-up defense for providers that advertise the `iss`
         authorization response parameter."""
-
-        metadata = await self.client.load_server_metadata()
 
         if not metadata.get("authorization_response_iss_parameter_supported"):
             return
@@ -208,13 +149,15 @@ class OAuthProviderAdapter(ABC):
         if request.query_params.get("iss") != metadata["issuer"]:
             raise OAuthProviderError("Authorization response issuer mismatch.")
 
+    @final
     async def resolve_identity(self, request: Request) -> OAuthIdentity:
         try:
-            await self._verify_response_issuer(request)
+            metadata = await self.client.load_server_metadata()
+            self._verify_response_issuer(request, metadata)
             token = await self.client.authorize_access_token(
                 request,
                 claims_options={
-                    **self.id_token_claims_options(),
+                    **self.id_token_claims_options(metadata),
                     "aud": {
                         "essential": True,
                         "validate": self._audience_is_this_client,

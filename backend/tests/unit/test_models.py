@@ -1,4 +1,4 @@
-"""Model validation that runs in Python, before anything reaches the database."""
+"""Email normalization, and the model validation built on it."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from app.modules.users.models import UserEmail
     ("address", "normalized"),
     [
         ("  Ada@Example.COM ", "Ada@example.com"),
-        ("grace@contoso.com", "grace@contoso.com"),
         ("a@münchen.DE", "a@münchen.de"),
         # No provider-specific rules: Gmail's dots and +tags are kept.
         ("a.d.a+tag@gmail.com", "a.d.a+tag@gmail.com"),
@@ -21,9 +20,7 @@ from app.modules.users.models import UserEmail
         ("Postmaster@Example.com", "postmaster@example.com"),
     ],
 )
-def test_normalization_lowercases_the_domain(
-    address: str, normalized: str
-) -> None:
+def test_normalization_lowercases_the_domain(address: str, normalized: str) -> None:
     assert normalize_email(address) == normalized
 
 

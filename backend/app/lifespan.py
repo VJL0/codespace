@@ -16,15 +16,15 @@ from app.core.email import (
 )
 from app.database import create_database_engine, create_session_factory
 from app.modules.auth.providers.registry import (
-    OAuthProviderRegistry,
-    create_oauth_provider_registry,
+    OAuthProviders,
+    create_oauth_providers,
 )
 
 
 class AppState(TypedDict):
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
-    oauth_providers: OAuthProviderRegistry
+    oauth_providers: OAuthProviders
     # For outside services (HIBP, Resend), shared so connections are reused.
     http_client: httpx2.AsyncClient
     email_sender: EmailSender
@@ -49,7 +49,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[AppState]:
             yield {
                 "engine": engine,
                 "session_factory": create_session_factory(engine),
-                "oauth_providers": create_oauth_provider_registry(),
+                "oauth_providers": create_oauth_providers(),
                 "http_client": http_client,
                 "email_sender": create_email_sender(http_client),
             }

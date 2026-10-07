@@ -114,7 +114,7 @@ export async function answerProvidersWith(
     })
   })
 
-  // Linking and reauthenticating: the SPA navigates to the provider itself.
+  // Linking: the SPA navigates to the provider itself.
   await context.route(
     (url) => url.hostname in PROVIDER_BY_HOST,
     (route) => {
@@ -149,9 +149,13 @@ export async function signIn(
 
 export const PASSWORD = "a perfectly fine passphrase"
 
-// The link in the last email sent to `to`. Emails go out after the response,
-// so wait for it to arrive.
-export async function latestEmailLink(page: Page, to: string): Promise<string> {
+// The link in the last email sent to `to`, to the page `path` if given.
+// Emails go out after the response, so wait for it to arrive.
+export async function latestEmailLink(
+  page: Page,
+  to: string,
+  path?: string
+): Promise<string> {
   let link = ""
 
   await expect
@@ -160,11 +164,20 @@ export async function latestEmailLink(page: Page, to: string): Promise<string> {
         `/api/__e2e__/outbox?to=${encodeURIComponent(to)}`
       )
       link = response.ok() ? (await response.json()).link : ""
-      return link
+      return link !== "" && (!path || new URL(link).pathname === path)
     })
-    .not.toBe("")
+    .toBe(true)
 
   return link
+}
+
+// Answer the settings page's "Confirm it's you" with the emailed link.
+export async function confirmByEmail(page: Page, email: string): Promise<void> {
+  await page.getByRole("button", { name: "Email me a link" }).click()
+  await expect(page.getByText(`We sent a link to ${email}`)).toBeVisible()
+  await page.goto(await latestEmailLink(page, email, "/reauthenticate"))
+  await page.waitForURL("/settings?reauthenticated=email")
+  await expect(page.getByText("Confirmed.")).toBeVisible()
 }
 
 export interface PasswordUser {

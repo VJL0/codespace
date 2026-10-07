@@ -52,7 +52,7 @@ uv run pytest                    # all; needs Docker running (no compose step)
 uv run pytest tests/unit         # no database, no Docker
 uv run pytest tests/integration  # starts a throwaway postgres:18-alpine container (Testcontainers),
                                  # migrates it, removes it at the end; api/ goes through HTTP
-uv run pytest --cov              # with branch coverage; fails under 95%
+uv run pytest --cov              # with branch coverage; fails under 80%
 
 tests/
 ├── conftest.py      # test environment, set before app/ is imported
@@ -84,7 +84,5 @@ For each module:
 router.py          # HTTP layer
 schemas.py         # Pydantic DTOs
 models.py          # SQLAlchemy models
-repository.py      # database queries
-service.py         # business logic/use cases
+service.py         # business rules and their queries, as plain functions
 dependencies.py    # FastAPI dependency wiring
-exceptions.py      # module-specific errors

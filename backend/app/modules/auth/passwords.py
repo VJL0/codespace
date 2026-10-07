@@ -3,20 +3,26 @@ from __future__ import annotations
 import hashlib
 import logging
 import unicodedata
+from typing import TYPE_CHECKING
 
 import httpx2
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
+from fastapi import status
 from starlette.concurrency import run_in_threadpool
 
+from app.api.errors import api_error
 from app.modules.auth.audit import audit
+
+if TYPE_CHECKING:
+    from app.modules.auth.models import PasswordCredential
 
 logger = logging.getLogger(__name__)
 
 # Argon2id with argon2-cffi's defaults (RFC 9106's low-memory profile: 64
 # MiB, 3 passes, 4 lanes), above OWASP's minimum. Changing them later is
-# safe: each hash records its own, and check_needs_rehash() upgrades old
-# ones at the next sign-in.
+# safe: each hash records its own, and check_password() upgrades old ones at
+# the next sign-in.
 _hasher = PasswordHasher()
 
 # Verified when the account has no password, so a missing account takes as
@@ -27,20 +33,14 @@ MIN_LENGTH = 15
 MAX_LENGTH = 256
 
 
-class PasswordPolicyError(ValueError):
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
-
-
 def _normalize(password: str) -> str:
-    # NIST SP 800-63B: the same password typed on another keyboard or OS
-    # should match.
-    return unicodedata.normalize("NFKC", password)
+    # NIST SP 800-63B-4: Unicode passwords are normalized to NFC, so the same
+    # password typed on another keyboard or OS matches.
+    return unicodedata.normalize("NFC", password)
 
 
 async def check_password_policy(password: str, http_client: httpx2.AsyncClient) -> None:
-    """Raise PasswordPolicyError unless `password` may be set.
+    """Refuse (422) a password that may not be set.
 
     NIST SP 800-63B-4 for a password used alone: long enough, no
     composition rules, and not known from breaches.
@@ -49,17 +49,22 @@ async def check_password_policy(password: str, http_client: httpx2.AsyncClient) 
     length = len(_normalize(password))
 
     if length < MIN_LENGTH:
-        raise PasswordPolicyError(
-            "password_too_short", f"Use at least {MIN_LENGTH} characters."
+        raise api_error(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "password_too_short",
+            f"Use at least {MIN_LENGTH} characters.",
         )
 
     if length > MAX_LENGTH:
-        raise PasswordPolicyError(
-            "password_too_long", f"Use at most {MAX_LENGTH} characters."
+        raise api_error(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "password_too_long",
+            f"Use at most {MAX_LENGTH} characters.",
         )
 
     if await _is_breached(password, http_client):
-        raise PasswordPolicyError(
+        raise api_error(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "password_breached",
             "This password has appeared in a data breach. Choose another.",
         )
@@ -100,19 +105,27 @@ async def hash_password(password: str) -> str:
     return await run_in_threadpool(_hasher.hash, _normalize(password))
 
 
-async def verify_password(password_hash: str | None, password: str) -> bool:
-    """Whether `password` matches; with no hash, still spends the time of a
-    check, then fails."""
+async def check_password(credential: PasswordCredential | None, password: str) -> bool:
+    """Whether `password` matches the credential. With none, still spends the
+    time of a check, then fails.
+
+    A match hashed with older parameters is re-hashed with the current ones:
+    the password is at hand only now.
+    """
 
     try:
         await run_in_threadpool(
-            _hasher.verify, password_hash or _DUMMY_HASH, _normalize(password)
+            _hasher.verify,
+            credential.password_hash if credential else _DUMMY_HASH,
+            _normalize(password),
         )
     except VerificationError, InvalidHashError:
         return False
 
-    return password_hash is not None
+    if credential is None:
+        return False
 
+    if _hasher.check_needs_rehash(credential.password_hash):
+        credential.password_hash = await hash_password(password)
 
-def needs_rehash(password_hash: str) -> bool:
-    return _hasher.check_needs_rehash(password_hash)
+    return True

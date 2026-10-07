@@ -108,9 +108,6 @@ export interface SignInMethods {
     created_at: string
   }[]
   emails: { email: string; is_primary: boolean; verified: boolean }[]
-  // Linked providers that can confirm it's the user by asking for their
-  // credentials again.
-  reauthentication_providers: OAuthProvider[]
   recently_authenticated: boolean
 }
 
@@ -118,26 +115,14 @@ export async function getSignInMethods(): Promise<SignInMethods> {
   return (await apiFetch("/api/auth/methods")).json()
 }
 
-// Linking and reauthenticating continue at the provider, which returns the
-// browser to /settings.
-async function continueAtProvider(
-  provider: OAuthProvider,
-  purpose: "link" | "reauthenticate"
-): Promise<void> {
-  const response = await apiFetch(`/api/auth/${provider}/${purpose}`, {
+// Linking continues at the provider, which returns the browser to /settings.
+export async function linkProvider(provider: OAuthProvider): Promise<void> {
+  const response = await apiFetch(`/api/auth/${provider}/link`, {
     method: "POST",
   })
   const { authorization_url } = await response.json()
 
   window.location.assign(authorization_url)
-}
-
-export function linkProvider(provider: OAuthProvider): Promise<void> {
-  return continueAtProvider(provider, "link")
-}
-
-export function reauthenticateWith(provider: OAuthProvider): Promise<void> {
-  return continueAtProvider(provider, "reauthenticate")
 }
 
 export async function unlinkProvider(provider: OAuthProvider): Promise<void> {

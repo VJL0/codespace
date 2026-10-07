@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.config import settings
-from app.modules.auth.exceptions import OAuthProviderError
 from app.modules.auth.models import OAuthProvider
-from app.modules.auth.providers.base import OAuthIdentity, OAuthProviderAdapter
+from app.modules.auth.providers.base import (
+    OAuthIdentity,
+    OAuthProviderAdapter,
+    OAuthProviderError,
+)
 
 GITHUB_API_HEADERS = {
     "Accept": "application/vnd.github+json",
@@ -49,7 +52,7 @@ class GitHubOAuthAdapter(OAuthProviderAdapter):
         emails_response.raise_for_status()
         primary_email = next(
             (entry for entry in emails_response.json() if entry.get("primary")),
-            None,
+            {},
         )
 
         # The numeric `id` is durable; `login` can be renamed and reassigned.
@@ -57,8 +60,6 @@ class GitHubOAuthAdapter(OAuthProviderAdapter):
 
         if github_user_id is None:
             raise OAuthProviderError("GitHub returned no user ID.")
-
-        primary_email = primary_email or {}
 
         return OAuthIdentity(
             provider=self.provider,

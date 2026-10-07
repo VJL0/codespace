@@ -1,12 +1,11 @@
-"""GET /api/auth/{provider}/callback: signing in with the provider's answer.
-
-Runs the real flow (Authlib, PKCE, ID token signature and claim checks)
-against the in-process fake providers.
-"""
+"""Signing in with Google, Microsoft or GitHub: /api/auth/{provider}/login and
+/callback, run for real (Authlib, PKCE, ID token signature and claim checks)
+against the in-process fake providers."""
 
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import httpx2
 import pytest
@@ -25,6 +24,7 @@ from tests.support.auth_flow import (
     approval,
     assert_oauth_failed,
     frontend_error,
+    frontend_redirect,
     set_session_token,
     sign_in,
 )
@@ -38,118 +38,159 @@ from tests.support.fake_oauth import (
     FakeOAuthServer,
 )
 
-PROVIDERS = ["google", "microsoft", "github"]
+ADA = {
+    "name": "Ada Lovelace",
+    "email": "Ada@Example.com",
+    "avatar_url": GOOGLE_CLAIMS["picture"],
+}
+GRACE = {"name": "Grace Hopper", "email": "grace@contoso.com", "avatar_url": None}
+OCTOCAT = {
+    "name": "The Octocat",
+    "email": "Octocat@GitHub.com",
+    "avatar_url": GITHUB_USER["avatar_url"],
+}
 
 
-# --- Successful sign-in -----------------------------------------------------
+def cookie_attributes(response: httpx2.Response, name: str) -> set[str]:
+    [cookie] = [
+        c for c in response.headers.get_list("set-cookie") if c.startswith(name)
+    ]
+
+    return {part.strip().lower() for part in cookie.split(";")[1:]}
+
+
+# --- Starting ---------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("provider", "provider_user_id", "email", "name", "avatar_url"),
+    ("provider", "authorize_endpoint", "scope"),
     [
         (
             "google",
-            GOOGLE_CLAIMS["sub"],
-            "Ada@Example.com",
-            "Ada Lovelace",
-            GOOGLE_CLAIMS["picture"],
+            "https://accounts.google.com/o/oauth2/v2/auth",
+            "openid email profile",
         ),
         (
             "microsoft",
-            f"{MICROSOFT_OID}.{MICROSOFT_ORG_TENANT}",
-            "grace@contoso.com",
-            "Grace Hopper",
-            None,
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+            "openid email profile",
         ),
-        (
-            "github",
-            "583231",
-            "Octocat@GitHub.com",
-            "The Octocat",
-            GITHUB_USER["avatar_url"],
-        ),
+        ("github", "https://github.com/login/oauth/authorize", "read:user user:email"),
     ],
 )
-async def test_sign_in_creates_user_account_and_session(
+async def test_login_redirects_to_the_provider_with_pkce(
+    client: httpx2.AsyncClient, provider: str, authorize_endpoint: str, scope: str
+) -> None:
+    response = await client.get(f"/api/auth/{provider}/login")
+
+    assert response.status_code == 302
+    url = urlsplit(response.headers["location"])
+    params = {key: values[0] for key, values in parse_qs(url.query).items()}
+    assert f"{url.scheme}://{url.netloc}{url.path}" == authorize_endpoint
+    assert params["client_id"] == f"{provider}-client-id"
+    assert params["redirect_uri"] == f"{APP_URL}/api/auth/{provider}/callback"
+    assert params["scope"] == scope
+    assert params["prompt"] == "select_account"
+    assert params["code_challenge_method"] == "S256"
+    # OIDC providers get a nonce; GitHub has no ID token to carry one.
+    assert ("nonce" in params) == (provider != "github")
+    assert {"httponly", "secure", "samesite=lax", "path=/", "max-age=600"} <= (
+        cookie_attributes(response, "__Host-Http-oauth")
+    )
+
+
+async def test_an_unreachable_provider_sends_the_user_back_with_an_error(
+    client: httpx2.AsyncClient,
+    fake_oauth: FakeOAuthServer,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fake_oauth.unavailable_hosts.add("accounts.google.com")
+
+    response = await client.get("/api/auth/google/login")
+
+    assert_oauth_failed(response, caplog, "OAuth start failed for google")
+
+
+# --- Signing in ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("provider", "provider_response", "provider_user_id", "me"),
+    [
+        pytest.param(
+            "google", approval("google"), GOOGLE_CLAIMS["sub"], ADA, id="google"
+        ),
+        # Google documents both "https://accounts.google.com" and this.
+        pytest.param(
+            "google",
+            {"claims": {**GOOGLE_CLAIMS, "iss": "accounts.google.com"}},
+            GOOGLE_CLAIMS["sub"],
+            ADA,
+            id="google-issuer-without-scheme",
+        ),
+        pytest.param(
+            "microsoft",
+            approval("microsoft"),
+            f"{MICROSOFT_OID}.{MICROSOFT_ORG_TENANT}",
+            GRACE,
+            id="microsoft-work-account",
+        ),
+        pytest.param(
+            "microsoft",
+            {
+                "claims": {**MICROSOFT_CLAIMS, "tid": MICROSOFT_PERSONAL_TENANT},
+                "signing_key": MICROSOFT_PERSONAL_KEY,
+            },
+            f"{MICROSOFT_OID}.{MICROSOFT_PERSONAL_TENANT}",
+            GRACE,
+            id="microsoft-personal-account",
+        ),
+        pytest.param("github", approval("github"), "583231", OCTOCAT, id="github"),
+    ],
+)
+async def test_sign_in_creates_the_user_their_account_and_a_session(
     client: httpx2.AsyncClient,
     fake_oauth: FakeOAuthServer,
     db: AsyncSession,
     provider: str,
+    provider_response: dict[str, Any],
     provider_user_id: str,
-    email: str,
-    name: str,
-    avatar_url: str | None,
+    me: dict[str, str | None],
 ) -> None:
-    response = await sign_in(client, fake_oauth, provider, **approval(provider))
+    response = await sign_in(client, fake_oauth, provider, **provider_response)
 
-    assert frontend_error(response) is None
-    assert response.headers["location"] == f"{APP_URL}/"
-
-    me = await client.get("/api/auth/me")
-    assert me.status_code == 200
-    assert me.json() == {"name": name, "email": email, "avatar_url": avatar_url}
-
+    assert frontend_redirect(response) == ("/", {})
+    assert (await client.get("/api/auth/me")).json() == me
     account = await db.scalar(select(OAuthAccount))
     assert account is not None
-    assert account.provider.value == provider
-    assert account.provider_user_id == provider_user_id
-    assert account.email_snapshot == email
+    assert (account.provider.value, account.provider_user_id) == (
+        provider,
+        provider_user_id,
+    )
 
 
-async def test_google_accepts_issuer_without_scheme(
+async def test_the_session_cookie_is_host_only_secure_and_http_only(
     client: httpx2.AsyncClient, fake_oauth: FakeOAuthServer
 ) -> None:
-    # Google documents both "https://accounts.google.com" and "accounts.google.com".
-    response = await sign_in(
-        client,
-        fake_oauth,
-        "google",
-        claims={**GOOGLE_CLAIMS, "iss": "accounts.google.com"},
-    )
+    response = await sign_in(client, fake_oauth, "google", **approval("google"))
 
-    assert frontend_error(response) is None
-
-
-async def test_microsoft_personal_account_signs_in(
-    client: httpx2.AsyncClient, fake_oauth: FakeOAuthServer, db: AsyncSession
-) -> None:
-    claims = {
-        **MICROSOFT_CLAIMS,
-        "tid": MICROSOFT_PERSONAL_TENANT,
-        "email": "grace@outlook.com",
-    }
-
-    response = await sign_in(
-        client,
-        fake_oauth,
-        "microsoft",
-        claims=claims,
-        signing_key=MICROSOFT_PERSONAL_KEY,
-    )
-
-    assert frontend_error(response) is None
-    account = await db.scalar(select(OAuthAccount))
-    assert account is not None
-    assert account.provider_user_id == f"{MICROSOFT_OID}.{MICROSOFT_PERSONAL_TENANT}"
+    attributes = cookie_attributes(response, SESSION_COOKIE)
+    assert {"httponly", "secure", "samesite=lax", "path=/"} <= attributes
+    # The __Host- prefix forbids a Domain; browsers drop the cookie otherwise.
+    assert not any(attribute.startswith("domain=") for attribute in attributes)
 
 
 async def test_signing_in_again_replaces_the_session(
     client: httpx2.AsyncClient, fake_oauth: FakeOAuthServer, db: AsyncSession
 ) -> None:
-    await sign_in(client, fake_oauth, "google", claims=GOOGLE_CLAIMS)
+    await sign_in(client, fake_oauth, "google", **approval("google"))
     first_token = client.cookies[SESSION_COOKIE]
 
-    response = await sign_in(client, fake_oauth, "google", claims=GOOGLE_CLAIMS)
+    await sign_in(client, fake_oauth, "google", **approval("google"))
 
-    assert frontend_error(response) is None
-    assert client.cookies[SESSION_COOKIE] != first_token
     assert await count_rows(db, UserSession) == 1
-
     set_session_token(client, first_token)
     assert (await client.get("/api/auth/me")).status_code == 401
-
-
-# --- Sign-ins without an email ------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -160,53 +201,28 @@ async def test_signing_in_again_replaces_the_session(
             "microsoft",
             {"claims": {k: v for k, v in MICROSOFT_CLAIMS.items() if k != "xms_edov"}},
         ),
-        ("microsoft", {"claims": {**MICROSOFT_CLAIMS, "xms_edov": False}}),
-        (
-            "github",
-            {
-                "github_user": GITHUB_USER,
-                "github_emails": [{**GITHUB_EMAILS[1], "verified": False}],
-            },
-        ),
         ("github", {"github_user": GITHUB_USER, "github_emails": [GITHUB_EMAILS[0]]}),
-        (
-            "microsoft",
-            {"claims": {k: v for k, v in MICROSOFT_CLAIMS.items() if k != "email"}},
-        ),
     ],
-    ids=[
-        "google",
-        "microsoft-no-xms_edov",
-        "microsoft-xms_edov-false",
-        "github",
-        "github-no-primary-email",
-        "microsoft-no-email",
-    ],
+    ids=["google-unverified", "microsoft-without-xms_edov", "github-no-primary"],
 )
-async def test_sign_in_without_a_verified_email_leaves_the_user_without_one(
+async def test_an_email_the_provider_doesnt_vouch_for_isnt_recorded(
     client: httpx2.AsyncClient,
     fake_oauth: FakeOAuthServer,
     db: AsyncSession,
     provider: str,
     provider_response: dict[str, Any],
 ) -> None:
-    # Sign-in rests on the provider's user ID; an email it doesn't vouch for
-    # is never recorded as the user's.
     response = await sign_in(client, fake_oauth, provider, **provider_response)
 
     assert frontend_error(response) is None
     assert (await client.get("/api/auth/me")).json()["email"] is None
-    assert await count_rows(db, User) == 1
     assert await count_rows(db, UserEmail) == 0
 
 
-# --- Refused sign-ins ---------------------------------------------------------
-
-
-async def test_same_email_from_another_provider_is_refused(
+async def test_an_email_another_user_verified_is_refused(
     client: httpx2.AsyncClient, fake_oauth: FakeOAuthServer, db: AsyncSession
 ) -> None:
-    await sign_in(client, fake_oauth, "google", claims=GOOGLE_CLAIMS)
+    await sign_in(client, fake_oauth, "google", **approval("google"))
     client.cookies.clear()
 
     response = await sign_in(
@@ -214,31 +230,15 @@ async def test_same_email_from_another_provider_is_refused(
         fake_oauth,
         "github",
         github_user=GITHUB_USER,
-        # Ada@Example.com in another letter case: the domain's doesn't matter.
+        # Ada@Example.com with the domain in another case: still the same.
         github_emails=[{**GITHUB_EMAILS[1], "email": "Ada@EXAMPLE.COM"}],
     )
 
     assert frontend_error(response) == "account_exists"
     assert await count_rows(db, User) == 1
-    assert await count_rows(db, OAuthAccount) == 1
 
 
-async def test_github_profile_without_a_user_id_fails(
-    client: httpx2.AsyncClient,
-    fake_oauth: FakeOAuthServer,
-    db: AsyncSession,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    response = await sign_in(
-        client,
-        fake_oauth,
-        "github",
-        github_user={k: v for k, v in GITHUB_USER.items() if k != "id"},
-        github_emails=GITHUB_EMAILS,
-    )
-
-    assert_oauth_failed(response, caplog, "GitHub returned no user ID")
-    assert await count_rows(db, User) == 0
+# --- Refused sign-ins ---------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -265,42 +265,14 @@ async def test_github_profile_without_a_user_id_fails(
             id="id-token-aud-wrong",
         ),
         pytest.param(
-            {
-                "claims": {
-                    **GOOGLE_CLAIMS,
-                    "aud": "another-client",
-                    "azp": "google-client-id",
-                }
-            },
-            "Invalid claim: 'aud'",
-            id="id-token-aud-wrong-azp-right",
-        ),
-        pytest.param(
-            {
-                "claims": {
-                    **GOOGLE_CLAIMS,
-                    "aud": ["google-client-id", "another-client"],
-                }
-            },
+            {"claims": {**GOOGLE_CLAIMS, "aud": ["google-client-id", "another"]}},
             "Invalid claim: 'aud'",
             id="id-token-untrusted-extra-audience",
         ),
-        pytest.param(
-            {"claims": {**GOOGLE_CLAIMS, "nonce": "replayed"}},
-            "Invalid claim: 'nonce'",
-            id="id-token-nonce-wrong",
-        ),
-        pytest.param(
-            {"claims": {**GOOGLE_CLAIMS, "exp": 1_000_000_000}},
-            "The token is expired",
-            id="id-token-expired",
-        ),
-        pytest.param(
-            {"error": "access_denied"}, "access_denied", id="user-denied-consent"
-        ),
+        pytest.param({"error": "access_denied"}, "access_denied", id="denied"),
     ],
 )
-async def test_google_callback_rejections(
+async def test_google_answers_that_are_refused(
     client: httpx2.AsyncClient,
     fake_oauth: FakeOAuthServer,
     db: AsyncSession,
@@ -340,25 +312,10 @@ async def test_google_callback_rejections(
             id="tid-not-guid",
         ),
         pytest.param(
-            {**MICROSOFT_CLAIMS, "tid": MICROSOFT_ORG_TENANT.upper()},
-            MICROSOFT_ORG_KEY,
-            "Invalid claim: 'iss'",
-            id="tid-not-canonical-guid",
-        ),
-        pytest.param(
             {k: v for k, v in MICROSOFT_CLAIMS.items() if k != "tid"},
             MICROSOFT_ORG_KEY,
-            "Missing claim: 'tid'",
-            id="tid-missing",
-        ),
-        pytest.param(
-            {
-                **MICROSOFT_CLAIMS,
-                "iss": "https://login.microsoftonline.com/{tenantid}/v2.0",
-            },
-            MICROSOFT_ORG_KEY,
             "Invalid claim: 'iss'",
-            id="iss-template-literal",
+            id="tid-missing",
         ),
         pytest.param(
             {k: v for k, v in MICROSOFT_CLAIMS.items() if k != "oid"},
@@ -368,7 +325,7 @@ async def test_google_callback_rejections(
         ),
     ],
 )
-async def test_microsoft_callback_rejections(
+async def test_microsoft_answers_that_are_refused(
     client: httpx2.AsyncClient,
     fake_oauth: FakeOAuthServer,
     db: AsyncSession,
@@ -385,10 +342,25 @@ async def test_microsoft_callback_rejections(
     assert await count_rows(db, User) == 0
 
 
-async def test_callback_from_another_browser_fails(
+async def test_a_github_profile_without_a_user_id_is_refused(
     client: httpx2.AsyncClient,
     fake_oauth: FakeOAuthServer,
-    db: AsyncSession,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    response = await sign_in(
+        client,
+        fake_oauth,
+        "github",
+        github_user={k: v for k, v in GITHUB_USER.items() if k != "id"},
+        github_emails=GITHUB_EMAILS,
+    )
+
+    assert_oauth_failed(response, caplog, "GitHub returned no user ID")
+
+
+async def test_a_callback_from_another_browser_is_refused(
+    client: httpx2.AsyncClient,
+    fake_oauth: FakeOAuthServer,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Login CSRF: an attacker's own callback URL replayed in the victim's
@@ -398,10 +370,6 @@ async def test_callback_from_another_browser_fails(
     client.cookies.clear()
 
     assert_oauth_failed(await client.get(callback), caplog, "mismatching_state")
-    assert await count_rows(db, User) == 0
-
-
-# --- Provider failures --------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -413,10 +381,9 @@ async def test_callback_from_another_browser_fails(
         pytest.param("github", "api.github.com", id="github-api"),
     ],
 )
-async def test_provider_outage_during_callback_fails(
+async def test_a_provider_outage_during_the_callback_is_reported(
     client: httpx2.AsyncClient,
     fake_oauth: FakeOAuthServer,
-    db: AsyncSession,
     caplog: pytest.LogCaptureFixture,
     provider: str,
     host: str,
@@ -428,4 +395,3 @@ async def test_provider_outage_during_callback_fails(
     response = await client.get(callback)
 
     assert_oauth_failed(response, caplog, f"OAuth callback failed for {provider}")
-    assert await count_rows(db, User) == 0

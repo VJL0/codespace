@@ -49,11 +49,8 @@ A session counts as recent for **10 minutes** after one of these:
 - Signing in with a password, or finishing sign-up.
 - Entering the password again.
 - Opening an emailed link, **in the same browser** that asked for it.
-- Signing in again at **Google** or **Microsoft**, which are made to ask for credentials. The app checks the ID token's `auth_time`.
 
-GitHub can't force a new credential prompt, so it can't be used here.
-
-A plain provider sign-in is **not** recent: the provider may have answered from its own saved session.
+A provider sign-in is **not** recent: the provider may have answered from its own saved session, and providers can't be relied on to ask again ([Google doesn't support it](https://developers.google.com/identity/siwg/security-bundle)).
 
 ## Flows
 
@@ -95,7 +92,7 @@ A plain provider sign-in is **not** recent: the provider may have answered from 
 **Password rules** (NIST SP 800-63B):
 
 - 15 to 256 characters, with no other composition rules.
-- Normalized with Unicode NFKC first.
+- Normalized to Unicode NFC first.
 - Checked against Have I Been Pwned. Only the first 5 characters of the SHA-1 hash leave the server. If the check is down, the password is allowed.
 
 ## Emailed links
@@ -103,7 +100,7 @@ A plain provider sign-in is **not** recent: the provider may have answered from 
 - Each link holds a random 256-bit secret. Only its SHA-256 hash is stored.
 - Single use. Used up in one database update, so two clicks can't both succeed.
 - The secret is in the URL **fragment** (`#token=...`). Browsers don't send fragments, so it stays out of server logs. The page reads it and posts it to the API.
-- Asking for a new reset or setup link cancels the old one.
+- Asking for a new reset, setup or "confirm it's you" link cancels the account's earlier one of that kind.
 - Every send has an idempotency key, so a retry doesn't send twice.
 
 | Link | Valid for |
@@ -157,10 +154,9 @@ Backend, `backend/app/`:
 
 | Path | What |
 | --- | --- |
-| `modules/auth/router.py` | Session, `/me`, sign-in methods, provider flows |
-| `modules/auth/password_router.py` | Sign-up, password sign-in, reauthentication, password management |
-| `modules/auth/service.py` | Provider sign-in, linking, unlinking, removing a password |
-| `modules/auth/password_service.py` | Password sign-in and account creation |
+| `modules/auth/router.py` | Sessions, `/me`, sign-in methods, provider sign-in and linking |
+| `modules/auth/password_router.py` | Sign-up, password sign-in, "Confirm it's you", password management |
+| `modules/auth/service.py` | The rules for signing in and for adding or removing sign-in methods |
 | `modules/auth/session.py` | Sessions and the session cookie |
 | `modules/auth/tokens.py` | Secrets and emailed-link tokens |
 | `modules/auth/passwords.py` | Hashing and password rules |
@@ -169,6 +165,7 @@ Backend, `backend/app/`:
 | `modules/auth/dependencies.py` | `CurrentUser`, `RecentlyAuthenticatedSession` and other FastAPI dependencies |
 | `modules/auth/emails.py` | The emails auth sends |
 | `modules/users/emails.py` | `normalize_email()` |
+| `modules/users/service.py` | Email address lookups |
 | `api/csrf.py` | The CSRF check |
 
 Frontend, `frontend/src/`:
@@ -185,7 +182,7 @@ See [Same-origin deployment](../README.md#same-origin-deployment) in the README 
 
 - `APP_URL` and the provider redirect URIs
 - proxy settings
-- the Microsoft `auth_time` claim, without which Microsoft reauthentication fails
+- the Microsoft `xms_edov` claim, without which Microsoft emails count as unverified
 
 Auth settings in `backend/.env`:
 
