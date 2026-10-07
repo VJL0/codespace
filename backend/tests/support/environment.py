@@ -1,0 +1,35 @@
+"""The environment the app is configured with under test."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+API_HOST = "api.example.test"
+API_URL = f"https://{API_HOST}"
+FRONTEND_URL = "https://app.example.test"
+
+PROVIDER_CREDENTIALS = {
+    "google": ("google-client-id", "google-client-secret"),
+    "microsoft": ("microsoft-client-id", "microsoft-client-secret"),
+    "github": ("github-client-id", "github-client-secret"),
+}
+
+
+def app_environment() -> dict[str, str]:
+    """Variables that take precedence over .env for app.core.config."""
+
+    return {
+        "ENVIRONMENT": "test",
+        "API_URL": API_URL,
+        "FRONTEND_URL": FRONTEND_URL,
+        "ALLOWED_HOSTS": f'["{API_HOST}"]',
+        "DATABASE_URL": "postgresql+asyncpg://unused.invalid/unused",
+        "OAUTH_SESSION_SECRET_KEY": "test-oauth-session-secret",
+        **{
+            f"{provider.upper()}_CLIENT_{part}": value
+            for provider, (client_id, secret) in PROVIDER_CREDENTIALS.items()
+            for part, value in (("ID", client_id), ("SECRET", secret))
+        },
+    }
