@@ -1,5 +1,11 @@
-import { useState, type SubmitEvent } from "react"
-import { Link, redirect } from "react-router"
+import {
+  Form,
+  Link,
+  redirect,
+  useActionData,
+  useNavigation,
+  type ActionFunctionArgs,
+} from "react-router"
 
 import { OAuthSignInButton } from "@/components/oauth/oauth-sign-in-button"
 import { OAUTH_PROVIDERS } from "@/components/oauth/providers"
@@ -12,7 +18,7 @@ import {
   FieldSeparator,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { getCurrentUser, register } from "@/lib/api"
+import { attempt, getCurrentUser, register } from "@/lib/api"
 
 export async function loader() {
   if ((await getCurrentUser()) !== null) {
@@ -22,26 +28,15 @@ export async function loader() {
   return null
 }
 
+export async function action({ request }: ActionFunctionArgs) {
+  const email = String((await request.formData()).get("email"))
+
+  return (await attempt(() => register(email))) ?? { sentTo: email }
+}
+
 export function Component() {
-  const [email, setEmail] = useState("")
-  const [sentTo, setSentTo] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setSubmitting(true)
-    setError(null)
-
-    try {
-      await register(email)
-      setSentTo(email)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Try again.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  const result = useActionData<typeof action>()
+  const submitting = useNavigation().state !== "idle"
 
   return (
     <div className="flex min-h-svh items-center justify-center p-6">
@@ -56,38 +51,37 @@ export function Component() {
           </p>
         </div>
 
-        {sentTo ? (
+        {result && "sentTo" in result ? (
           <Alert>
             <AlertDescription>
-              Check {sentTo} for a link to finish creating your account. It
-              works for an hour.
+              Check {result.sentTo} for a link to finish creating your account.
+              It works for an hour.
             </AlertDescription>
           </Alert>
         ) : (
           <>
-            <form onSubmit={handleSubmit}>
+            <Form method="post">
               <FieldGroup>
-                {error && (
+                {result?.error && (
                   <Alert variant="destructive">
-                    <AlertDescription>{error}</AlertDescription>
+                    <AlertDescription>{result.error}</AlertDescription>
                   </Alert>
                 )}
                 <Field>
                   <FieldLabel htmlFor="email">Email</FieldLabel>
                   <Input
                     id="email"
+                    name="email"
                     type="email"
                     autoComplete="email"
                     required
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
                   />
                 </Field>
                 <Button type="submit" size="lg" disabled={submitting}>
                   Continue with email
                 </Button>
               </FieldGroup>
-            </form>
+            </Form>
 
             <FieldSeparator>or</FieldSeparator>
 

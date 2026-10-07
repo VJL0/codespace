@@ -1,32 +1,26 @@
-import { useState, type SubmitEvent } from "react"
-import { Link } from "react-router"
+import {
+  Form,
+  Link,
+  useActionData,
+  useNavigation,
+  type ActionFunctionArgs,
+} from "react-router"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { forgotPassword } from "@/lib/api"
+import { attempt, forgotPassword } from "@/lib/api"
+
+export async function action({ request }: ActionFunctionArgs) {
+  const email = String((await request.formData()).get("email"))
+
+  return (await attempt(() => forgotPassword(email))) ?? { sentTo: email }
+}
 
 export function Component() {
-  const [email, setEmail] = useState("")
-  const [sentTo, setSentTo] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setSubmitting(true)
-    setError(null)
-
-    try {
-      await forgotPassword(email)
-      setSentTo(email)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Try again.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  const result = useActionData<typeof action>()
+  const submitting = useNavigation().state !== "idle"
 
   return (
     <div className="flex min-h-svh items-center justify-center p-6">
@@ -40,37 +34,36 @@ export function Component() {
           </p>
         </div>
 
-        {sentTo ? (
+        {result && "sentTo" in result ? (
           <Alert>
             <AlertDescription>
-              If {sentTo} has an account with a password, we've sent it a link
-              to reset it. It works for 30 minutes.
+              If {result.sentTo} has an account with a password, we've sent it a
+              link to reset it. It works for 30 minutes.
             </AlertDescription>
           </Alert>
         ) : (
-          <form onSubmit={handleSubmit}>
+          <Form method="post">
             <FieldGroup>
-              {error && (
+              {result?.error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription>{result.error}</AlertDescription>
                 </Alert>
               )}
               <Field>
                 <FieldLabel htmlFor="email">Email</FieldLabel>
                 <Input
                   id="email"
+                  name="email"
                   type="email"
                   autoComplete="email"
                   required
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
                 />
               </Field>
               <Button type="submit" size="lg" disabled={submitting}>
                 Email me a link
               </Button>
             </FieldGroup>
-          </form>
+          </Form>
         )}
       </div>
     </div>

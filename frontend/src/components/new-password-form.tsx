@@ -1,4 +1,4 @@
-import { useState, type SubmitEvent } from "react"
+import { Form, useNavigation } from "react-router"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -11,35 +11,24 @@ import {
 import { Input } from "@/components/ui/input"
 
 interface NewPasswordFormProps {
+  // The emailed link's secret, posted with the password.
+  token: string
+  error: string | undefined
   submitLabel: string
-  onSubmit: (password: string) => Promise<void>
 }
 
-// Choosing a password from an emailed link: resetting or adding one.
+// Choosing a password from an emailed link: resetting or adding one. Posts
+// `token` and `password` to the route's action.
 export function NewPasswordForm({
+  token,
+  error,
   submitLabel,
-  onSubmit,
 }: NewPasswordFormProps) {
-  const [password, setPassword] = useState("")
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setSubmitting(true)
-    setError(null)
-
-    try {
-      await onSubmit(password)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Try again.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  const submitting = useNavigation().state !== "idle"
 
   return (
-    <form onSubmit={handleSubmit}>
+    <Form method="post">
+      <input type="hidden" name="token" value={token} />
       <FieldGroup>
         {error && (
           <Alert variant="destructive">
@@ -50,12 +39,11 @@ export function NewPasswordForm({
           <FieldLabel htmlFor="new-password">New password</FieldLabel>
           <Input
             id="new-password"
+            name="password"
             type="password"
             autoComplete="new-password"
             required
             minLength={15}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
           />
           <FieldDescription>
             At least 15 characters. A few words make a good one.
@@ -65,6 +53,6 @@ export function NewPasswordForm({
           {submitLabel}
         </Button>
       </FieldGroup>
-    </form>
+    </Form>
   )
 }
