@@ -119,12 +119,9 @@ A plain provider sign-in is **not** recent: the provider may have answered from 
 
 The SPA and API share one origin, and the API sends no CORS headers.
 
-Every `POST`, `PUT`, `PATCH` or `DELETE` under `/api` must have:
+Every `POST`, `PUT`, `PATCH` or `DELETE` under `/api` must have `Sec-Fetch-Site: same-origin`, or, if the browser doesn't send it, an `Origin` equal to `APP_URL`. Browsers set both headers themselves, so the SPA adds nothing.
 
-- the header `X-CSRF-Protection: 1`, and
-- `Sec-Fetch-Site: same-origin`, or, if the browser doesn't send it, an `Origin` equal to `APP_URL`.
-
-The SPA's `apiFetch()` adds the header.
+This is [Fetch Metadata with the `Origin` fallback](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#fetch-metadata-headers) that OWASP requires. It refuses cross-site pages and same-site siblings alike. `SameSite=Lax` cookies are a second layer.
 
 ### Rate limits
 

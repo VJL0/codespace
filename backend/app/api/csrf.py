@@ -6,10 +6,9 @@ from app.core.config import settings
 async def require_same_origin(request: Request) -> None:
     """Refuse state-changing requests that didn't come from the app itself.
 
-    The SPA and API share one origin, and the API sends no CORS headers, so
-    a cross-origin page can't send the custom header without a preflight the
-    browser then fails. Fetch Metadata, or Origin on browsers without it,
-    rejects what the header alone wouldn't: a same-site sibling, for one.
+    Fetch Metadata says where a browser request came from; browsers without
+    it send Origin instead (OWASP's required fallback). Either must name
+    this origin: a cross-site page, or a same-site sibling, is refused.
     """
 
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
@@ -17,7 +16,7 @@ async def require_same_origin(request: Request) -> None:
 
     fetch_site = request.headers.get("sec-fetch-site")
 
-    if request.headers.get("x-csrf-protection") != "1" or (
+    if (
         request.headers.get("origin") != settings.app_url
         if fetch_site is None
         else fetch_site != "same-origin"

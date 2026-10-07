@@ -7,79 +7,37 @@ import pytest
 
 from tests.support.environment import APP_URL
 
-# POST /api/auth/logout changes state and needs no session, so it shows the
-# check alone: 204 when it passes, 403 when it doesn't.
-LOGOUT = "/api/auth/logout"
-
-
-async def post_with(client: httpx2.AsyncClient, **headers: str) -> httpx2.Response:
-    """POST logout with exactly these headers, not the client's defaults."""
-
-    client.headers.clear()
-
-    return await client.post(LOGOUT, headers=headers)
-
-
-async def test_spa_request_passes(client: httpx2.AsyncClient) -> None:
-    response = await post_with(
-        client, **{"x-csrf-protection": "1", "sec-fetch-site": "same-origin"}
-    )
-
-    assert response.status_code == 204
-
-
-async def test_missing_custom_header_is_refused(client: httpx2.AsyncClient) -> None:
-    # A plain cross-site form post can't add custom headers.
-    response = await post_with(client, **{"sec-fetch-site": "same-origin"})
-
-    assert response.status_code == 403
-
-
-@pytest.mark.parametrize("fetch_site", ["cross-site", "same-site", "none"])
-async def test_request_not_from_this_origin_is_refused(
-    client: httpx2.AsyncClient, fetch_site: str
-) -> None:
-    # same-site: a sibling subdomain is still another origin.
-    response = await post_with(
-        client, **{"x-csrf-protection": "1", "sec-fetch-site": fetch_site}
-    )
-
-    assert response.status_code == 403
-
-
-async def test_fetch_metadata_wins_over_a_matching_origin(
-    client: httpx2.AsyncClient,
-) -> None:
-    response = await post_with(
-        client,
-        **{"x-csrf-protection": "1", "sec-fetch-site": "cross-site", "origin": APP_URL},
-    )
-
-    assert response.status_code == 403
-
-
-async def test_without_fetch_metadata_the_app_origin_passes(
-    client: httpx2.AsyncClient,
-) -> None:
-    response = await post_with(client, **{"x-csrf-protection": "1", "origin": APP_URL})
-
-    assert response.status_code == 204
-
 
 @pytest.mark.parametrize(
-    "origin", [None, "null", "https://evil.example", f"{APP_URL}.evil.example"]
+    ("headers", "status"),
+    [
+        pytest.param({"sec-fetch-site": "same-origin"}, 204, id="spa"),
+        pytest.param({"origin": APP_URL}, 204, id="no-fetch-metadata"),
+        # A plain cross-site form post, or a no-cors fetch().
+        pytest.param({"sec-fetch-site": "cross-site"}, 403, id="cross"),
+        # A sibling subdomain is same-site, but still another origin.
+        pytest.param({"sec-fetch-site": "same-site"}, 403, id="sibling"),
+        # Typed in the address bar or opened from a bookmark: never a POST
+        # the app sends.
+        pytest.param({"sec-fetch-site": "none"}, 403, id="user-initiated"),
+        pytest.param(
+            {"sec-fetch-site": "cross-site", "origin": APP_URL},
+            403,
+            id="fetch-metadata-wins",
+        ),
+        pytest.param({}, 403, id="no-origin"),
+        pytest.param({"origin": f"{APP_URL}.evil.example"}, 403, id="lookalike-origin"),
+    ],
 )
-async def test_without_fetch_metadata_any_other_origin_is_refused(
-    client: httpx2.AsyncClient, origin: str | None
+async def test_state_changing_requests_must_come_from_the_app(
+    client: httpx2.AsyncClient, headers: dict[str, str], status: int
 ) -> None:
-    headers = {"x-csrf-protection": "1"}
+    client.headers.clear()
 
-    if origin is not None:
-        headers["origin"] = origin
+    # Logout changes state and needs no session, so it shows the check alone.
+    response = await client.post("/api/auth/logout", headers=headers)
 
-    response = await post_with(client, **headers)
-
-    assert response.status_code == 403
+    assert response.status_code == status
 
 
 async def test_safe_methods_are_not_checked(client: httpx2.AsyncClient) -> None:
