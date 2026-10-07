@@ -26,7 +26,7 @@ Browser ──► /      React SPA       (frontend/)
 
 - `main.py`: builds the app and its middleware.
 - `lifespan.py`: shared objects created at startup (database, HTTP client, email sender, OAuth providers).
-- `api/`: the `/api` router, the CSRF check and the error format.
+- `api/`: the `/api` router, the CSRF check, scheduled jobs and the error format.
 - `core/`: settings, email sending and request IDs.
 - `models/`: the SQLAlchemy base class and mixins.
 - `modules/<name>/`: one folder per feature, e.g. `auth` and `users`.

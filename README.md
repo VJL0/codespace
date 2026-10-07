@@ -152,6 +152,11 @@ and the same for `microsoft` and `github`).
 Behind a proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy
 IPs>` so the app sees the client's address rather than the proxy's.
 
+Vercel Cron runs the daily cleanup in `vercel.json` (`/api/cron/purge-expired`).
+Set `CRON_SECRET` in the Vercel project to the backend's value. Vercel calls
+the production deployment's `*.vercel.app` URL, not your domain, so add that
+host to `ALLOWED_HOSTS` too.
+
 Microsoft has no `email_verified` claim; its `xms_edov` optional claim says
 whether an email is verified. In the Entra app registration, under **Token
 configuration**, add the `email` and `xms_edov` optional claims to the ID
