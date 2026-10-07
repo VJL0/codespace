@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 from app.modules.auth.models import UserSession
 from app.modules.auth.repository import UserSessionRepository
 from app.modules.users.models import User
-from app.modules.users.repository import UserRepository
 
 if TYPE_CHECKING:
     from fastapi import Response
@@ -17,19 +16,36 @@ if TYPE_CHECKING:
 TOKEN_BYTES = 32
 SESSION_COOKIE_NAME = "__Host-Http-session"
 SESSION_ABSOLUTE_TIMEOUT = timedelta(days=14)
+# How long after a fresh authentication sensitive changes stay allowed.
+RECENT_AUTH_WINDOW = timedelta(minutes=10)
 
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-class SessionService:
-    def __init__(self, sessions: UserSessionRepository, users: UserRepository) -> None:
-        self._sessions = sessions
-        self._users = users
+def is_recently_authenticated(user_session: UserSession) -> bool:
+    """Whether the session's last fresh authentication is recent enough for
+    a sensitive change (linking, unlinking, credential changes)."""
 
-    def create_session(self, *, user: User) -> str:
+    authenticated_at = user_session.authenticated_at
+
+    return (
+        authenticated_at is not None
+        and datetime.now(UTC) - authenticated_at <= RECENT_AUTH_WINDOW
+    )
+
+
+class SessionService:
+    def __init__(self, sessions: UserSessionRepository) -> None:
+        self._sessions = sessions
+
+    def create_session(self, *, user: User, fresh: bool) -> str:
+        """Start a session; `fresh` when the sign-in proved the person is
+        present (a password, an email link), not just a provider's SSO."""
+
         token = secrets.token_urlsafe(TOKEN_BYTES)
+        now = datetime.now(UTC)
 
         # By relationship rather than user.id: a user created in this same
         # transaction has no id until the flush.
@@ -37,14 +53,29 @@ class SessionService:
             UserSession(
                 user=user,
                 token_hash=_hash_token(token),
-                expires_at=datetime.now(UTC) + SESSION_ABSOLUTE_TIMEOUT,
+                authenticated_at=now if fresh else None,
+                expires_at=now + SESSION_ABSOLUTE_TIMEOUT,
             )
         )
 
         return token
 
-    async def get_user_for_session(self, token: str) -> User | None:
-        """Return the active user a session token belongs to, or None."""
+    def reauthenticate(self, user_session: UserSession) -> str:
+        """Record a fresh authentication on this session and renew its token.
+
+        The same session, so its age and expiry stand; a new token, as after
+        any change in what a session may do.
+        """
+
+        token = secrets.token_urlsafe(TOKEN_BYTES)
+        user_session.token_hash = _hash_token(token)
+        user_session.authenticated_at = datetime.now(UTC)
+
+        return token
+
+    async def get_active_session(self, token: str) -> UserSession | None:
+        """Return the live session for a token, with its active user loaded,
+        or None."""
 
         user_session = await self._sessions.get_by_token_hash(_hash_token(token))
 
@@ -65,12 +96,10 @@ class SessionService:
         if now - user_session.last_seen_at > timedelta(minutes=1):
             user_session.last_seen_at = now
 
-        user = await self._users.get(user_session.user_id)
-
-        if user is None or not user.is_active:
+        if not user_session.user.is_active:
             return None
 
-        return user
+        return user_session
 
     async def revoke_session(self, token: str) -> None:
         await self._sessions.delete_by_token_hash(_hash_token(token))
@@ -86,6 +115,7 @@ async def finish_sign_in(
     *,
     user: User,
     previous_token: str | None,
+    fresh: bool,
 ) -> None:
     """Start a fresh session for `user` and set its cookie on `response`.
 
@@ -96,7 +126,7 @@ async def finish_sign_in(
     if previous_token is not None:
         await session_service.revoke_session(previous_token)
 
-    token = session_service.create_session(user=user)
+    token = session_service.create_session(user=user, fresh=fresh)
     await db.commit()
 
     set_session_cookie(response, token=token)

@@ -71,6 +71,7 @@ class _Grant:
     signing_key: str
     github_user: dict[str, Any] | None
     github_emails: list[dict[str, Any]] | None
+    reauthenticated: bool
 
 
 @dataclass
@@ -83,6 +84,8 @@ class FakeOAuthServer:
     """Hosts that answer 503, as a provider outage would."""
 
     requests: list[httpx2.Request] = field(default_factory=list)
+    authorizations: list[dict[str, str]] = field(default_factory=list)
+    """The parameters of each authorization request approved, in order."""
     _codes: dict[str, _Grant] = field(default_factory=dict)
     _access_tokens: dict[str, _Grant] = field(default_factory=dict)
 
@@ -109,6 +112,7 @@ class FakeOAuthServer:
 
         url = urlsplit(authorize_url)
         params = {key: values[0] for key, values in parse_qs(url.query).items()}
+        self.authorizations.append(params)
         provider = {
             "accounts.google.com": "google",
             "login.microsoftonline.com": "microsoft",
@@ -134,6 +138,9 @@ class FakeOAuthServer:
                 ),
                 github_user=github_user,
                 github_emails=github_emails,
+                # What makes Google or Microsoft ask for credentials again.
+                reauthenticated=params.get("max_age") == "0"
+                or params.get("prompt") == "login",
             )
             response["code"] = code
 
@@ -253,6 +260,9 @@ class FakeOAuthServer:
             "iat": now,
             "exp": now + 3600,
             "nonce": grant.nonce,
+            # A provider that just made the person reauthenticate says when.
+            # Claims passed to authorize() override it, e.g. a stale one.
+            **({"auth_time": now} if grant.reauthenticated else {}),
             **grant.id_token_claims,
         }
 
