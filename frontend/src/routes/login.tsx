@@ -1,5 +1,12 @@
-import { useState, type SubmitEvent } from "react"
-import { Link, redirect, useNavigate, useSearchParams } from "react-router"
+import {
+  Form,
+  Link,
+  redirect,
+  useActionData,
+  useNavigation,
+  useSearchParams,
+  type ActionFunctionArgs,
+} from "react-router"
 
 import { OAuthSignInButton } from "@/components/oauth/oauth-sign-in-button"
 import { OAUTH_PROVIDERS } from "@/components/oauth/providers"
@@ -12,7 +19,7 @@ import {
   FieldSeparator,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { getCurrentUser, loginWithPassword } from "@/lib/api"
+import { attempt, getCurrentUser, loginWithPassword } from "@/lib/api"
 import { getOAuthErrorMessage } from "@/lib/oauth-errors"
 
 export async function loader() {
@@ -25,28 +32,20 @@ export async function loader() {
   return null
 }
 
+export async function action({ request }: ActionFunctionArgs) {
+  const form = await request.formData()
+  const failed = await attempt(() =>
+    loginWithPassword(String(form.get("email")), String(form.get("password")))
+  )
+
+  return failed ?? redirect("/")
+}
+
 export function Component() {
   const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [submitting, setSubmitting] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
-  const error = formError ?? getOAuthErrorMessage(searchParams.get("error"))
-
-  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setSubmitting(true)
-    setFormError(null)
-
-    try {
-      await loginWithPassword(email, password)
-      navigate("/", { replace: true })
-    } catch (caught) {
-      setFormError(caught instanceof Error ? caught.message : "Try again.")
-      setSubmitting(false)
-    }
-  }
+  const failed = useActionData<typeof action>()
+  const submitting = useNavigation().state !== "idle"
+  const error = failed?.error ?? getOAuthErrorMessage(searchParams.get("error"))
 
   return (
     <div className="flex min-h-svh items-center justify-center p-6">
@@ -67,17 +66,16 @@ export function Component() {
           </Alert>
         )}
 
-        <form onSubmit={handleSubmit}>
+        <Form method="post" replace>
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="email">Email</FieldLabel>
               <Input
                 id="email"
+                name="email"
                 type="email"
                 autoComplete="username"
                 required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
               />
             </Field>
             <Field>
@@ -92,18 +90,17 @@ export function Component() {
               </div>
               <Input
                 id="password"
+                name="password"
                 type="password"
                 autoComplete="current-password"
                 required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
               />
             </Field>
             <Button type="submit" size="lg" disabled={submitting}>
               Sign in
             </Button>
           </FieldGroup>
-        </form>
+        </Form>
 
         <FieldSeparator>or</FieldSeparator>
 

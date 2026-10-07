@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/card"
 import {
   ApiError,
+  errorMessage,
   getSignInMethods,
   linkProvider,
   logoutEverywhere,
@@ -78,9 +79,7 @@ export function Component() {
       ) {
         setReauthOpen(true)
       } else {
-        setActionError(
-          caught instanceof Error ? caught.message : "Something went wrong."
-        )
+        setActionError(errorMessage(caught))
       }
     }
   }

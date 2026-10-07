@@ -55,6 +55,29 @@ export async function apiFetch(
   return response
 }
 
+// What to show for a failed request.
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Try again."
+}
+
+// For a route action: make the API call, and turn a refusal into data for
+// the page to show rather than an error for the route's error boundary.
+// Null when the call succeeded.
+export async function attempt(
+  call: () => Promise<unknown>
+): Promise<{ error: string; code: string | null } | null> {
+  try {
+    await call()
+
+    return null
+  } catch (caught) {
+    return {
+      error: errorMessage(caught),
+      code: caught instanceof ApiError ? caught.code : null,
+    }
+  }
+}
+
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   try {
     const response = await apiFetch("/api/auth/me")

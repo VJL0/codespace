@@ -1,13 +1,22 @@
 import { useState } from "react"
-import { Link } from "react-router"
+import { Link, useActionData, type ActionFunctionArgs } from "react-router"
 
 import { NewPasswordForm } from "@/components/new-password-form"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { resetPassword, tokenFromLocation } from "@/lib/api"
+import { attempt, resetPassword, tokenFromLocation } from "@/lib/api"
+
+export async function action({ request }: ActionFunctionArgs) {
+  const form = await request.formData()
+  const failed = await attempt(() =>
+    resetPassword(String(form.get("token")), String(form.get("password")))
+  )
+
+  return failed ?? { done: true }
+}
 
 export function Component() {
   const [token] = useState(tokenFromLocation)
-  const [done, setDone] = useState(false)
+  const result = useActionData<typeof action>()
 
   return (
     <div className="flex min-h-svh items-center justify-center p-6">
@@ -16,7 +25,7 @@ export function Component() {
           Choose a new password
         </h1>
 
-        {done ? (
+        {result && "done" in result ? (
           <Alert>
             <AlertDescription>
               Your password is changed and you're signed out everywhere.{" "}
@@ -31,11 +40,9 @@ export function Component() {
           </Alert>
         ) : (
           <NewPasswordForm
+            token={token}
+            error={result?.error}
             submitLabel="Reset password"
-            onSubmit={async (password) => {
-              await resetPassword(token, password)
-              setDone(true)
-            }}
           />
         )}
       </div>

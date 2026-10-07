@@ -16,7 +16,12 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { changePassword, removePassword, startPasswordSetup } from "@/lib/api"
+import {
+  changePassword,
+  errorMessage,
+  removePassword,
+  startPasswordSetup,
+} from "@/lib/api"
 
 interface PasswordSettingsProps {
   hasPassword: boolean
@@ -51,7 +56,7 @@ export function PasswordSettings({
       setNext("")
       setNotice("Password changed. Your other browsers were signed out.")
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Try again.")
+      setError(errorMessage(caught))
     }
   }
 

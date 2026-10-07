@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
+  errorMessage,
   reauthenticateWith,
   reauthenticateWithPassword,
   sendReauthenticationEmail,
@@ -58,7 +59,7 @@ export function ReauthenticateDialog({
     try {
       await action()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Try again.")
+      setError(errorMessage(caught))
     }
   }
 

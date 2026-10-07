@@ -2,7 +2,11 @@ import { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { completeEmailReauthentication, tokenFromLocation } from "@/lib/api"
+import {
+  completeEmailReauthentication,
+  errorMessage,
+  tokenFromLocation,
+} from "@/lib/api"
 
 // Where the "Confirm it's you" email links to. It only works in the browser
 // that asked for it.
@@ -19,8 +23,7 @@ export function Component() {
 
     completeEmailReauthentication(token).then(
       () => navigate("/settings?reauthenticated=email", { replace: true }),
-      (caught) =>
-        setError(caught instanceof Error ? caught.message : "Try again.")
+      (caught) => setError(errorMessage(caught))
     )
   }, [navigate])
 
