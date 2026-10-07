@@ -1,5 +1,3 @@
-"""The emails the auth module sends."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

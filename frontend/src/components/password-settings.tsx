@@ -22,7 +22,6 @@ interface PasswordSettingsProps {
   hasPassword: boolean
   // The primary email, which signing in with a password uses.
   email: string | null
-  // Whether the password is the user's only way to sign in.
   isOnlyMethod: boolean
   // Runs an action that may need the user to confirm it's them first.
   guarded: (action: () => Promise<void>) => Promise<void>

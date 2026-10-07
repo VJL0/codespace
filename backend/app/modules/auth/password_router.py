@@ -388,7 +388,6 @@ async def forgot_password(
     if email is None or not await passwords.has_password(email.user_id):
         return
 
-    # Only the newest link works.
     await tokens.revoke(EmailTokenPurpose.PASSWORD_RESET, email.user_id)
     token, secret = tokens.issue(
         EmailTokenPurpose.PASSWORD_RESET,

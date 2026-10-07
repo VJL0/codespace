@@ -1,5 +1,3 @@
-# app/core/config.py
-
 from pathlib import Path
 from typing import Literal
 
@@ -13,19 +11,15 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # App
     environment: Literal["development", "test", "production"]
     # The one public origin, without a trailing slash: the SPA at / and the
     # API at /api are served from it.
     app_url: str
 
-    # HTTP
     allowed_hosts: list[str]
 
-    # Database
     database_url: str
 
-    # OAuth
     google_client_id: str
     google_client_secret: str
     microsoft_client_id: str
