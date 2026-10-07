@@ -96,7 +96,7 @@ async def logout_all(
 ) -> Response:
     """Sign out every browser, this one included."""
 
-    await session_service.revoke_all_sessions(current_user)
+    await session_service.revoke_all_sessions(current_user.id)
     await db.commit()
     audit("auth.sessions.revoked_all", user_id=current_user.id)
 

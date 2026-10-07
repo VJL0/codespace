@@ -176,3 +176,49 @@ export async function completeEmailReauthentication(
 export function tokenFromLocation(): string | null {
   return new URLSearchParams(window.location.hash.slice(1)).get("token")
 }
+
+export async function forgotPassword(email: string): Promise<void> {
+  await apiFetch("/api/auth/password/forgot", {
+    method: "POST",
+    json: { email },
+  })
+}
+
+export async function resetPassword(
+  token: string,
+  password: string
+): Promise<void> {
+  await apiFetch("/api/auth/password/reset", {
+    method: "POST",
+    json: { token, password },
+  })
+}
+
+// Adding a password to a provider-only account goes by a link to its email.
+export async function startPasswordSetup(): Promise<void> {
+  await apiFetch("/api/auth/password/setup", { method: "POST" })
+}
+
+export async function completePasswordSetup(
+  token: string,
+  password: string
+): Promise<void> {
+  await apiFetch("/api/auth/password/setup/complete", {
+    method: "POST",
+    json: { token, password },
+  })
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  await apiFetch("/api/auth/password/change", {
+    method: "POST",
+    json: { current_password: currentPassword, new_password: newPassword },
+  })
+}
+
+export async function removePassword(): Promise<void> {
+  await apiFetch("/api/auth/password", { method: "DELETE" })
+}

@@ -30,3 +30,11 @@ class OAuthAccountNotLinkedError(Exception):
 
 class LastSignInMethodError(Exception):
     """Removing this would leave the user no way to sign in."""
+
+
+class PasswordNotSetError(Exception):
+    """The user has no password."""
+
+
+class PasswordAlreadySetError(Exception):
+    """The user already has a password."""

@@ -8,6 +8,7 @@ import {
 } from "react-router"
 
 import { OAUTH_PROVIDERS } from "@/components/oauth/providers"
+import { PasswordSettings } from "@/components/password-settings"
 import { ReauthenticateDialog } from "@/components/reauthenticate-dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -186,6 +187,14 @@ export function Component() {
           </ul>
         </CardContent>
       </Card>
+
+      <PasswordSettings
+        hasPassword={methods.has_password}
+        email={primaryEmail}
+        isOnlyMethod={methods.identities.length === 0}
+        guarded={guarded}
+        onChanged={revalidate}
+      />
 
       {methods.emails.length > 0 && (
         <Card>

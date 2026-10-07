@@ -20,6 +20,18 @@ export const router = createBrowserRouter([
         lazy: () => import("@/routes/signup-complete"),
       },
       {
+        path: "forgot-password",
+        lazy: () => import("@/routes/forgot-password"),
+      },
+      {
+        path: "reset-password",
+        lazy: () => import("@/routes/reset-password"),
+      },
+      {
+        path: "password-setup",
+        lazy: () => import("@/routes/password-setup"),
+      },
+      {
         path: "join/:code?",
         lazy: () => import("@/routes/join"),
       },
