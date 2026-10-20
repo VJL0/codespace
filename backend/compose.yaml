@@ -1,0 +1,22 @@
+# Local development only. Production uses Neon (PostgreSQL) and Upstash (Redis).
+name: codespace
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: codespace
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  # Throwaway: nothing in it needs to survive a restart.
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+
+volumes:
+  postgres_data:

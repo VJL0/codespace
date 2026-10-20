@@ -49,13 +49,16 @@ More classroom-management and collaboration features are currently in developmen
 * GraphQL
 * SQLAlchemy
 * PostgreSQL
+* Redis
 * WebSockets
 
 ### Infrastructure
 
-* Docker
-* Docker Compose
-* Alembic
+* Vercel (hosting)
+* Neon (production PostgreSQL)
+* Upstash (production Redis)
+* Alembic (database migrations)
+* Docker (local PostgreSQL, Redis and tests only)
 
 ## Architecture
 
@@ -86,8 +89,8 @@ PostgreSQL
 ```text
 codespace/
 ├── frontend/          # React + TypeScript frontend
-├── backend/           # FastAPI backend
-├── docker-compose.yml
+├── backend/           # FastAPI backend (compose.yaml: local PostgreSQL and Redis)
+├── vercel.json        # production routing
 └── README.md
 ```
 
@@ -99,7 +102,7 @@ codespace/
 * [pnpm](https://pnpm.io/installation)
 * Python 3.14+
 * [uv](https://docs.astral.sh/uv/getting-started/installation/)
-* Docker + Docker Compose (for PostgreSQL)
+* Docker (runs PostgreSQL and Redis locally, and PostgreSQL in the integration tests)
 
 Clone the repository:
 
@@ -108,7 +111,7 @@ git clone https://github.com/VJL0/codespace.git
 cd codespace
 ```
 
-### 1. Start the database
+### 1. Start PostgreSQL and Redis
 
 ```bash
 cd backend
@@ -151,6 +154,18 @@ and the same for `microsoft` and `github`).
 
 Behind a proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy
 IPs>` so the app sees the client's address rather than the proxy's.
+
+### Production database (Neon)
+
+Set `DATABASE_URL` to Neon's **pooled** connection string (the host with
+`-pooler`), changed for asyncpg: the scheme is `postgresql+asyncpg://`, and
+`?sslmode=require&channel_binding=require` becomes `?ssl=require` (asyncpg
+refuses the libpq parameters). Run migrations through the **direct** string,
+since the pooler doesn't suit schema changes:
+
+```bash
+DATABASE_URL='postgresql+asyncpg://...@ep-....neon.tech/neondb?ssl=require' uv run alembic upgrade head
+```
 
 Microsoft has no `email_verified` claim; its `xms_edov` optional claim says
 whether an email is verified. In the Entra app registration, under **Token
