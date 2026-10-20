@@ -34,7 +34,7 @@ def database() -> Iterator[str]:
     """A migrated database for the run; yields its URL, which the app's
     settings (and so Alembic and the lifespan) point at meanwhile."""
 
-    # The image compose.yml runs, so tests see the same PostgreSQL. Its data
+    # The image compose.yaml runs locally, so tests see the same PostgreSQL. Its data
     # is thrown away, so it runs in RAM without durability, as PostgreSQL's
     # "Non-Durable Settings" recommend.
     postgres = (
